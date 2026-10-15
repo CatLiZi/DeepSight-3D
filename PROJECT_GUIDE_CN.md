@@ -128,6 +128,24 @@ TalkNet 的官方实现（git submodule）。用 `asd_backend = talknet` 时需�
 python tools\gpu_probe.py
 ```
 
+### `hardware/` — 机械结构资料
+
+机器人头部的**机械设计**：3D 模型、结构图、装配图、打印件。
+
+> **不要和根目录的 `models/` 混淆**——那个装的是 AI 模型（MediaPipe / SCRFD），
+> 是软件依赖；`hardware/` 是硬件设计。
+
+```
+hardware/
+├── cad/         3D 模型源文件（.step / .f3d / .blend…）
+├── drawings/    结构图 / 装配图 / 尺寸图（.pdf / .svg / .png）
+└── print/       3D 打印导出件（.stl / .3mf）
+```
+
+详见 [`hardware/README.md`](hardware/README.md)，其中有一节讲
+**「结构图与代码参数的对应关系」**——比如改了相机的安装位置，
+就必须重新校准 `Target X`。
+
 ### 配置文件
 
 | 文件 | 说明 |
