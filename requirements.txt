@@ -1,0 +1,40 @@
+# Complete dependency set for the positioning robot demo.
+# ffmpeg is still a separate system dependency and must be available on PATH.
+#
+# For CUDA PyTorch, install the wheel matching the target machine first, for example:
+#   python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Then install this file:
+#   python -m pip install -r requirements.txt
+#
+# If onnxruntime-gpu is incompatible with the target machine, replace it with
+# onnxruntime and use SCRFD on CPU or switch the detector/backend to CPU modes.
+#
+# NOTE: uvicorn alone cannot serve WebSockets. Without the `websockets` package
+# (or `wsproto`) it answers every WebSocket upgrade with HTTP 404, and the
+# dashboard goes dead: /ws drives the whole tick loop, so the camera never
+# starts and the controls appear unresponsive. uvicorn[standard] would pull it
+# in; it is listed explicitly here so a plain `pip install -r` is enough.
+
+fastapi>=0.110
+uvicorn>=0.27
+websockets>=12.0
+pydantic>=2.0
+pyserial>=3.5
+httpx>=0.27
+
+numpy>=1.24
+scipy>=1.10
+opencv-python-headless>=4.9
+mediapipe>=0.10
+
+insightface>=0.7.3
+onnxruntime-gpu>=1.17
+
+torch
+torchvision
+torchaudio
+scikit-learn
+pandas
+tqdm
+gdown
+python_speech_features

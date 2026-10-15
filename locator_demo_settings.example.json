@@ -1,0 +1,75 @@
+{
+  "port": null,
+  "yaw_id": null,
+  "pitch_id": 2,
+  "direction": {
+    "yaw_left_sign": -1,
+    "pitch_up_sign": -1,
+    "manual_step": 80
+  },
+  "features": {
+    "audio_enabled": false,
+    "visual_enabled": false,
+    "camera_enabled": true
+  },
+  "camera": {
+    "device_name": null,
+    "video_size": null,
+    "crop_left_half": null,
+    "fps": null,
+    "output_width": 640,
+    "face_detector_backend": "mediapipe",
+    "scrfd_model_path": null,
+    "scrfd_threshold": 0.35,
+    "scrfd_input_size": 640
+  },
+  "audio_mapping": {
+    "swap_channels": false
+  },
+  "control": {
+    "control_profile": "stable",
+    "motor_guard_ms": 250
+  },
+  "axis_limits": {
+    "yaw_min": 1200,
+    "yaw_center": 1500,
+    "yaw_max": 1800,
+    "pitch_min": 1200,
+    "pitch_center": 1500,
+    "pitch_max": 1800
+  },
+  "audio": {
+    "vad_enabled": true,
+    "audio_confidence_threshold": 0.2,
+    "speech_confidence_threshold": 0.15,
+    "doa_confidence_threshold": 0.05,
+    "required_audio_hits": 1
+  },
+  "vision": {
+    "active_speaker_enabled": true,
+    "tracking_strategy": "classic_audio_first",
+    "asd_backend": "rules",
+    "speaker_lock_policy": "turn_hold",
+    "target_offset_x_norm": 0.04,
+    "target_offset_y_norm": 0.0,
+    "visual_mirror_x": false,
+    "visual_speaker_threshold": 0.3,
+    "mouth_evidence_threshold": 0.06,
+    "visual_yaw_mode": "small",
+    "visual_pitch_enabled": true,
+    "visual_yaw_deadband": null,
+    "visual_pitch_deadband": null,
+    "visual_yaw_min_delta": 0,
+    "visual_yaw_max_delta": null,
+    "visual_pitch_min_delta": 0,
+    "visual_pitch_max_delta": null,
+    "min_face_height_ratio": 0.12,
+    "keep_face_height_ratio": 0.09,
+    "talknet_threshold": 0.55,
+    "speaker_lock_hold_s": 1.2,
+    "speaker_lost_timeout_s": 0.8,
+    "audio_interrupt_enabled": false,
+    "audio_search_after_silent_visual": false,
+    "silent_visual_hold_s": 1.2
+  }
+}

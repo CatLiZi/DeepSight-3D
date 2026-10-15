@@ -1,0 +1,2 @@
+"""Locator robot demo package."""
+

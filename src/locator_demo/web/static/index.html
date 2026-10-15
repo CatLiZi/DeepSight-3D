@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>定位机器人 Demo</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <strong>定位机器人 Demo</strong>
+          <span>听声辩位 · 双轴转头 · 视觉跟踪</span>
+        </div>
+        <div class="actions">
+          <button id="start-btn" class="primary">开始</button>
+          <button id="stop-btn">停止</button>
+          <button id="center-btn">回中</button>
+          <button id="scan-btn">扫描舵机</button>
+          <label class="toggle"><input id="camera-enabled-input" type="checkbox" checked />摄像头</label>
+          <label class="toggle"><input id="audio-enabled-input" type="checkbox" checked />听声转头</label>
+          <label class="toggle"><input id="visual-enabled-input" type="checkbox" checked />视觉跟踪</label>
+          <span id="status-chip" class="chip">连接中</span>
+          <span id="action-feedback" class="chip feedback-chip">就绪</span>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel audio-panel">
+          <div class="panel-head">
+            <h2>声源定位</h2>
+            <span id="audio-confidence">--</span>
+          </div>
+          <canvas id="direction-canvas" width="420" height="300"></canvas>
+          <div class="metrics">
+            <label>方向 <strong id="audio-direction">unknown</strong></label>
+            <label>TDOA <strong id="audio-tdoa">0.000000</strong></label>
+            <label>能量 <strong id="audio-energy">0.00</strong></label>
+            <label>输入 <strong id="audio-device">--</strong></label>
+          </div>
+          <div class="device-config audio-config">
+            <label>声道
+              <select id="audio-channel-map">
+                <option value="normal">正常</option>
+                <option value="swap">左右互换</option>
+              </select>
+            </label>
+            <label class="inline-check"><input id="vad-enabled-input" type="checkbox" checked />VAD</label>
+            <label>Audio th
+              <input id="audio-threshold-input" type="number" min="0" max="1" step="0.01" value="0.20" />
+            </label>
+            <label>Speech th
+              <input id="speech-threshold-input" type="number" min="0" max="1" step="0.01" value="0.15" />
+            </label>
+            <label>DoA th
+              <input id="doa-threshold-input" type="number" min="0" max="1" step="0.01" value="0.05" />
+            </label>
+            <label>Audio hits
+              <input id="audio-hits-input" type="number" min="1" max="5" step="1" value="1" />
+            </label>
+            <button id="save-audio-config-btn">保存声道</button>
+          </div>
+        </section>
+
+        <section class="panel video-panel">
+          <div class="panel-head">
+            <h2>视觉跟踪</h2>
+            <span id="visual-state">未锁定</span>
+          </div>
+          <div id="video-wrap" class="video-wrap">
+            <img id="preview" alt="camera preview" />
+            <canvas id="overlay" width="640" height="400"></canvas>
+          </div>
+          <div class="metrics">
+            <label>目标 <strong id="target-label">--</strong></label>
+            <label>模式 <strong id="mode-label">--</strong></label>
+            <label>运行 <strong id="running-label">false</strong></label>
+            <label>相机 <strong id="camera-status">--</strong></label>
+          </div>
+          <div class="device-config camera-config">
+            <label>摄像头
+              <select id="camera-device-select">
+                <option value="">自动选择</option>
+              </select>
+            </label>
+            <label>尺寸
+              <input id="camera-video-size-input" type="text" placeholder="auto / 1280x720" />
+            </label>
+            <label>FPS
+              <input id="camera-fps-input" type="number" min="1" max="30" step="1" placeholder="auto" />
+            </label>
+            <label>Output W
+              <input id="camera-output-width-input" type="number" min="320" max="1920" step="160" value="640" />
+            </label>
+            <label>Face detector
+              <select id="face-detector-backend-select">
+                <option value="mediapipe">mediapipe</option>
+                <option value="scrfd">scrfd</option>
+              </select>
+            </label>
+            <label>SCRFD model
+              <input id="scrfd-model-path-input" type="text" placeholder="models/scrfd_2.5g_kps.onnx" />
+            </label>
+            <label>SCRFD th
+              <input id="scrfd-threshold-input" type="number" min="0" max="1" step="0.01" value="0.35" />
+            </label>
+            <label>SCRFD size
+              <input id="scrfd-input-size-input" type="number" min="320" max="1280" step="32" value="640" />
+            </label>
+            <label>裁切
+              <select id="camera-crop-select">
+                <option value="">自动</option>
+                <option value="true">左半幅</option>
+                <option value="false">不裁切</option>
+              </select>
+            </label>
+            <label class="inline-check"><input id="active-speaker-input" type="checkbox" checked />说话人</label>
+            <label>Strategy
+              <select id="tracking-strategy-select">
+                <option value="classic_audio_first">classic audio first</option>
+                <option value="crowded_visual_first">crowded visual first</option>
+              </select>
+            </label>
+            <label>ASD
+              <select id="asd-backend-select">
+                <option value="rules">rules</option>
+                <option value="talknet">talknet</option>
+              </select>
+            </label>
+            <label>Lock policy
+              <select id="speaker-lock-policy-select">
+                <option value="turn_hold">turn hold</option>
+                <option value="until_lost">until lost</option>
+                <option value="interruptible">interruptible</option>
+              </select>
+            </label>
+            <label>Visual yaw
+              <select id="visual-yaw-mode-select">
+                <option value="small">small</option>
+                <option value="off">off</option>
+                <option value="full">full</option>
+              </select>
+            </label>
+            <label class="inline-check"><input id="visual-pitch-input" type="checkbox" checked />Visual pitch</label>
+            <label class="inline-check"><input id="visual-mirror-x-input" type="checkbox" />Mirror X</label>
+            <label>Yaw dead
+              <input id="visual-yaw-deadband-input" type="number" min="0" max="0.5" step="0.01" placeholder="profile" />
+            </label>
+            <label>Yaw step
+              <input id="visual-yaw-min-delta-input" type="number" min="0" max="200" step="1" placeholder="min" />
+            </label>
+            <label>Yaw max
+              <input id="visual-yaw-max-delta-input" type="number" min="1" max="300" step="1" placeholder="profile" />
+            </label>
+            <label>Pitch dead
+              <input id="visual-pitch-deadband-input" type="number" min="0" max="0.5" step="0.01" placeholder="profile" />
+            </label>
+            <label>Pitch step
+              <input id="visual-pitch-min-delta-input" type="number" min="0" max="200" step="1" placeholder="min" />
+            </label>
+            <label>Pitch max
+              <input id="visual-pitch-max-delta-input" type="number" min="1" max="300" step="1" placeholder="profile" />
+            </label>
+            <label>Target X
+              <input id="target-offset-x-input" type="number" min="-0.25" max="0.25" step="0.01" value="0.04" />
+            </label>
+            <label>Target Y
+              <input id="target-offset-y-input" type="number" min="-0.25" max="0.25" step="0.01" value="0" />
+            </label>
+            <label>Speaker th
+              <input id="speaker-threshold-input" type="number" min="0" max="1" step="0.01" value="0.30" />
+            </label>
+            <label>Mouth th
+              <input id="mouth-threshold-input" type="number" min="0" max="1" step="0.01" value="0.06" />
+            </label>
+            <label>Near face
+              <input id="min-face-height-input" type="number" min="0" max="1" step="0.01" value="0.12" />
+            </label>
+            <label>Keep face
+              <input id="keep-face-height-input" type="number" min="0" max="1" step="0.01" value="0.09" />
+            </label>
+            <label>TalkNet th
+              <input id="talknet-threshold-input" type="number" min="0" max="1" step="0.01" value="0.55" />
+            </label>
+            <label>Hold s
+              <input id="speaker-hold-input" type="number" min="0.1" max="5" step="0.1" value="1.2" />
+            </label>
+            <label>Lost s
+              <input id="speaker-lost-input" type="number" min="0.1" max="5" step="0.1" value="0.8" />
+            </label>
+            <label class="inline-check"><input id="audio-interrupt-input" type="checkbox" />Audio interrupt</label>
+            <label class="inline-check"><input id="silent-visual-audio-search-input" type="checkbox" />Silent visual search</label>
+            <label>Silent hold s
+              <input id="silent-visual-hold-input" type="number" min="0.1" max="5" step="0.1" value="1.2" />
+            </label>
+            <button id="save-camera-config-btn">保存相机</button>
+          </div>
+        </section>
+
+        <section class="panel servo-panel">
+          <div class="panel-head">
+            <h2>双轴头控</h2>
+            <span id="servo-config">COM14</span>
+          </div>
+          <div class="servo-readout">
+            <div>
+              <span>Yaw 转头</span>
+              <strong id="yaw-value">1500</strong>
+            </div>
+            <div>
+              <span>Pitch 抬头</span>
+              <strong id="pitch-value">1500</strong>
+            </div>
+          </div>
+          <div class="axis-config">
+            <label>串口<input id="port-input" type="text" placeholder="auto" /></label>
+            <label>Yaw ID<input id="yaw-id-input" type="number" min="0" max="254" placeholder="未知" /></label>
+            <label>Pitch ID<input id="pitch-id-input" type="number" min="0" max="254" value="2" /></label>
+            <button id="save-axis-btn">保存轴 ID</button>
+          </div>
+          <div class="axis-config">
+            <label>Pitch min<input id="pitch-min-input" type="number" min="500" max="2500" value="1200" /></label>
+            <label>Pitch center<input id="pitch-center-input" type="number" min="500" max="2500" value="1500" /></label>
+            <label>Pitch max<input id="pitch-max-input" type="number" min="500" max="2500" value="1800" /></label>
+            <button id="save-axis-limits-btn">保存范围</button>
+          </div>
+          <label class="control-row">Yaw
+            <input id="yaw-input" type="range" min="1200" max="1800" value="1500" step="1" />
+          </label>
+          <label class="control-row">Pitch
+            <input id="pitch-input" type="range" min="1200" max="1800" value="1500" step="1" />
+          </label>
+          <div class="jog-pad" aria-label="manual head jog">
+            <button class="jog-btn up" data-jog="up" title="上">↑</button>
+            <button class="jog-btn left" data-jog="left" title="左">←</button>
+            <button class="jog-btn home" data-yaw="1500" data-pitch="1500" title="回中">●</button>
+            <button class="jog-btn right" data-jog="right" title="右">→</button>
+            <button class="jog-btn down" data-jog="down" title="下">↓</button>
+          </div>
+          <div class="direction-config">
+            <label>左键
+              <select id="yaw-left-sign">
+                <option value="-1">Yaw 减小</option>
+                <option value="1">Yaw 增大</option>
+              </select>
+            </label>
+            <label>上键
+              <select id="pitch-up-sign">
+                <option value="-1">Pitch 减小</option>
+                <option value="1">Pitch 增大</option>
+              </select>
+            </label>
+            <label>步长
+              <input id="manual-step-input" type="number" min="1" max="300" value="60" />
+            </label>
+            <button id="save-direction-btn">保存方向</button>
+          </div>
+          <div class="control-config">
+            <label>控制
+              <select id="control-profile-select">
+                <option value="stable">稳健</option>
+                <option value="fast">快速</option>
+              </select>
+            </label>
+            <label>保护(ms)
+              <input id="motor-guard-input" type="number" min="0" max="1500" value="250" />
+            </label>
+            <button id="save-control-btn">保存控制</button>
+          </div>
+          <div id="direction-config-status" class="scan-result">方向未保存</div>
+          <div class="preset-grid">
+            <button data-yaw="1200" data-pitch="1500">左后</button>
+            <button data-yaw="1350" data-pitch="1500">左前</button>
+            <button data-yaw="1500" data-pitch="1500">中</button>
+            <button data-yaw="1650" data-pitch="1500">右前</button>
+            <button data-yaw="1800" data-pitch="1500">右后</button>
+          </div>
+          <button id="send-pose-btn" class="primary full">发送姿态</button>
+          <button id="visual-calibration-btn" class="full">Record visual sample</button>
+          <div id="visual-calibration-result" class="scan-result">No visual sample</div>
+          <div id="scan-result" class="scan-result">未扫描</div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h2>事件日志</h2>
+            <button id="clear-log-btn">清空</button>
+          </div>
+          <ol id="event-log"></ol>
+        </section>
+      </main>
+    </div>
+    <script src="/static/app.js?v=lock-policy-1"></script>
+  </body>
+</html>
