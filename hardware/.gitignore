@@ -1,0 +1,12 @@
+# Hardware drawings are intentional project assets; the root ignores PNG files.
+!drawings/**/*.png
+
+# Local CAD backups and slicer machine output.
+*.blend1
+*.blend2
+*.gcode
+.DS_Store
+
+# Legacy 3D references are archived outside Git.
+/cad/reference/jibot1-240103_asm.stp
+/cad/reference/head_base_reference.blend
