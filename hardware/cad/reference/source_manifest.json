@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "prepared_on": "2026-10-15",
+  "repository": "https://github.com/CatLiZi/DeepSight-3D",
+  "source_scope": "User-supplied JIBOT1 mechanical assembly and existing derived reference views.",
+  "assets": [
+    {
+      "path": "hardware/cad/reference/jibot1-240103_asm.stp",
+      "source_relative_path": "jibot1-240103_asm.stp",
+      "role": "original_step_assembly",
+      "bytes": 9026853,
+      "sha256": "0543bc579666db6534b0185a79979fe69661b696c2392154fc4bc357e2062476"
+    },
+    {
+      "path": "hardware/cad/reference/head_base_reference.blend",
+      "source_relative_path": "Blender预览/人头底座_参考局部.blend",
+      "role": "editable_static_mesh_reference",
+      "bytes": 768653,
+      "sha256": "288e9153c2bd48c93c2db10479242c6483394a406b6b69d6c454e9179ca6d8fa"
+    },
+    {
+      "path": "hardware/drawings/reference/assembly_overview.png",
+      "source_relative_path": "Blender预览/complete_model_six_actuators.png",
+      "role": "assembly_overview",
+      "bytes": 1260307,
+      "sha256": "62f2b96ccc564d1ddf315c02335581d9086e877172540bca2abccc29fc8c1ae6"
+    },
+    {
+      "path": "hardware/drawings/reference/head_base_axes.png",
+      "source_relative_path": "Blender预览/head_candidate_upright_axes.png",
+      "role": "illustrative_axis_view",
+      "bytes": 906665,
+      "sha256": "58ce94c62da1aa69be11d0160c0cc840684f01cb5f4247b50c34783f2d94d38c"
+    }
+  ],
+  "geometry": {
+    "step_length_unit": "millimetre",
+    "assembly_part_instances": 174,
+    "mesh_definitions": 35,
+    "assembly_preview_dimensions_mm": [
+      448.26838658956945,
+      180.00000000001,
+      269.8633797200958
+    ],
+    "head_reference_part_count": 10,
+    "head_reference_part_instance_ids": [
+      50,
+      54,
+      60,
+      62,
+      63,
+      64,
+      66,
+      68,
+      71,
+      72
+    ],
+    "head_reference_dimensions_mm": [
+      110.87,
+      110.87,
+      92.5
+    ],
+    "blender_internal_length_unit": "metre",
+    "blender_unit_settings": "Metric with millimetre display; 1 Blender unit = 1 metre",
+    "preview_linear_deflection_mm": 0.15,
+    "part_instance_ids_are_servo_communication_ids": false
+  },
+  "limits": [
+    "The STEP is a complete mechanical-arm reference, not a finished panda or human head enclosure.",
+    "The Blender head reference contains ten selected major meshes and omits some structural parts and fasteners.",
+    "The partial-reference height is not the verified total height of the commercial pan-tilt product.",
+    "The arrow view illustrates geometric cylinder centre lines and does not validate joint constraints or motion.",
+    "No enclosure model, printable shell, print profile, or mechanical fit verification is included."
+  ],
+  "source_context": {
+    "pan_tilt_series": "The material provider confirmed that the mechanical-arm base corresponds to the supplied two-axis pan-tilt product series.",
+    "specific_variant": "D-type is a visual comparison candidate; exact dimensions, variant and actuator remain unverified.",
+    "pan_tilt_product_url": "https://item.taobao.com/item.htm?id=525140448860"
+  }
+}

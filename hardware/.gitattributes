@@ -1,0 +1,8 @@
+# Preserve the exact reference CAD and mesh bytes across platforms.
+*.stp binary
+*.step binary
+*.blend binary
+*.stl binary
+*.3mf binary
+*.png binary
+cad/reference/source_manifest.json text eol=lf

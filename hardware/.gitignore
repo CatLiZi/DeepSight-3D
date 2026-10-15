@@ -1,0 +1,8 @@
+# Hardware drawings are intentional project assets; the root ignores PNG files.
+!drawings/**/*.png
+
+# Local CAD backups and slicer machine output.
+*.blend1
+*.blend2
+*.gcode
+.DS_Store

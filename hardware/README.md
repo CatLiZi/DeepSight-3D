@@ -14,7 +14,9 @@ hardware/
 └── print/       3D 打印导出件（直接可以丢给切片软件的文件）
 ```
 
-三个目录都放了 `.gitkeep` 占位。往里放东西后，可以直接把对应的 `.gitkeep` 删掉。
+现有机械参考放在 `cad/reference/`，关键视图放在 `drawings/reference/`。后续头部外壳的设计源文件与打印导出件继续分别归入 `cad/` 和 `print/`。
+
+外壳开发者请先阅读[头部外壳源文件位置与开发者约定](cad/head_shell/README.md)，并按其中的位置、命名、单位和验证状态要求交付。
 
 ## 各目录放什么
 
@@ -30,7 +32,7 @@ hardware/
 | `.blend` | Blender |
 | `.FCStd` | FreeCAD |
 
-> **建议同时导出 `.step`**。原生格式别人不一定打得开，`.step` 基本万能。
+> 实体CAD在工具支持时建议附STEP；Blender网格设计保留.blend源文件，并提供打印所需的STL或3MF导出件。
 
 ### `drawings/` — 结构图与装配图
 
@@ -43,7 +45,7 @@ hardware/
 
 ### `print/` — 打印导出件
 
-**已经摆好方向、加好支撑的、可以直接切的**文件。
+按零件导出的打印模型或切片项目。随文件标注验证状态；完成导出不等于已经完成切片、试装或试打印。
 
 | 格式 | 说明 |
 | --- | --- |
@@ -59,9 +61,9 @@ hardware/
 
 **这里的设计文件会公开到 GitHub，而且 git 对二进制文件很不友好：**
 
-- git **每次提交都完整存一份**，不像文本那样只存差异
-- 一个 50MB 的 STL 改 10 版 → 仓库里存了 **500MB**，且**永远删不掉**（历史里留存）
-- GitHub 单文件超过 **100MB 会直接拒绝**推送
+- 大量二进制迭代文件可能增加仓库历史体积，应精简为必要的设计和交付版本。
+- Git的打包压缩会影响实际占用，不能用文件大小乘版本数直接估算；参见[Git打包说明](https://git-scm.com/book/en/v2/Git-Internals-Packfiles)。
+- GitHub常规Git文件的大小限制参见[官方大文件说明](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)。
 
 **所以：**
 
@@ -116,9 +118,33 @@ Get-ChildItem hardware -Recurse -File | Sort-Object Length -Descending |
 
 ---
 
+## 已整理的机械参考
+
+首批保留4个核心素材，尺寸与来源记录见 [source_manifest.json](cad/reference/source_manifest.json)。
+
+| 文件 | 用途 |
+| --- | --- |
+| [jibot1-240103_asm.stp](cad/reference/jibot1-240103_asm.stp) | 原始机械臂装配，保留精确CAD几何，用于核对底部机构和安装接口。 |
+| [head_base_reference.blend](cad/reference/head_base_reference.blend) | 从装配中提取的10个主要零件，作为头部内部两轴机构的可编辑静态网格参考。 |
+| [assembly_overview.png](drawings/reference/assembly_overview.png) | 完整装配概览，显示原始机械臂的范围及执行器分布。 |
+| [head_base_axes.png](drawings/reference/head_base_axes.png) | 朝上摆放的底座局部及两条轴线示意，便于设计头壳空间。 |
+
+### 参考范围与单位
+
+原始STEP使用毫米。Blender参考文件内部使用米、界面显示毫米，1个Blender单位对应1米；导出到切片软件时应核对最终毫米尺寸。
+
+底座局部的网格包络约为110.87×110.87×92.50毫米，包含10个主要零件。该局部未包含全部支撑件及紧固件，不能把92.50毫米当作商品云台的完整装配高度。网格转换参数0.15毫米也不代表制造公差。
+
+材料提供者确认原始机械臂底部对应[此二维云台商品系列](https://item.taobao.com/item.htm?id=525140448860)。D款是外形较接近的候选，准确型号、孔位、完整尺寸、舵盘与舵机仍待核实。图中的两条箭头仅示意几何轴线；Blender文件没有经过验证的运动关节或控制绑定。CAD零件编号与舵机通信ID应分别记录。
+
+这批文件是机械机构参考，尚无头部外壳设计或打印就绪验证。完整Blender装配、重复视图、可再生成的网格JSON及转换过程文件暂存本地；旧控制代码与采购聊天材料不属于本批机械素材。
+
+### 后续外壳文件归档
+
+- 设计源文件放入 [cad/head_shell/](cad/head_shell/README.md)，例如 `head_shell_front_v1.step`；保留可编辑源文件，并遵循该目录的开发者约定。
+- 尺寸图和装配说明放入 `drawings/head_shell/`，注明相机开孔、轴线、安装孔、转动避让与装配关系。
+- 打印导出件放入 `print/head_shell/`，与源文件版本对应，并记录毫米单位、材料、打印方向和必要的切片配置。
+
 ## 当前状态
 
-**目录已建好，还没有放任何设计文件。**
-
-三个子目录里各有一个 `.gitkeep` 占位（git 不跟踪空目录）。放入实际文件后，
-可以把对应的 `.gitkeep` 删掉。
+已整理机械臂原始STEP、两轴底座局部Blender参考及两张关键视图，并建立外壳源文件目录与开发者约定。外壳原文件和打印导出件尚待后续设计；`print/` 当前只有目录占位。
