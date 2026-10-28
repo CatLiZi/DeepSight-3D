@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "adopted_on": "2026-10-28",
+  "status": "Current provisional modeling baseline selected by the project owner",
+  "repository": "https://github.com/CatLiZi/DeepSight-3D",
+  "source_archive": {
+    "name": "panda_blender_github.zip",
+    "sha256": "e0fd140acfd19118072cb957616a9464043c169a40e8b2b9bd5bad8c7281c3eb"
+  },
+  "files": [
+    {
+      "archive_entry": "head/panda_head_only_V17.blend",
+      "path": "hardware/cad/head_shell/panda_head_only_V17.blend",
+      "bytes": 13289034,
+      "sha256": "414d32a3b795917e7555f442307c35a142e378cc5391316a92b292fdfd78af75",
+      "role": "head",
+      "version_label": "V17",
+      "inspection": {
+        "opened_successfully": true,
+        "inspector_blender_version": "5.2.2 LTS",
+        "scene_object_count": 83,
+        "object_types": {
+          "MESH": 78,
+          "CURVE": 5
+        },
+        "scene_units": {
+          "system": "METRIC",
+          "scale_length": 1.0,
+          "length_display": "MILLIMETERS"
+        },
+        "external_library_count": 0,
+        "unpacked_image_dependencies": 0,
+        "unpacked_used_font_dependencies": 0,
+        "packed_images": 0
+      }
+    },
+    {
+      "archive_entry": "body/panda_body_V25_shells_V16_cylinder.blend",
+      "path": "hardware/cad/body_shell/panda_body_V25_shells_V16_cylinder.blend",
+      "bytes": 25038354,
+      "sha256": "38b0d51b3564c4edd51dfad404e875af1aaa92729768e092c03fa1608eadd9eb",
+      "role": "body",
+      "version_label": "V25_shells_V16_cylinder",
+      "inspection": {
+        "opened_successfully": true,
+        "inspector_blender_version": "5.2.2 LTS",
+        "scene_object_count": 31,
+        "object_types": {
+          "MESH": 28,
+          "CURVE": 3
+        },
+        "scene_units": {
+          "system": "METRIC",
+          "scale_length": 1.0,
+          "length_display": "MILLIMETERS"
+        },
+        "external_library_count": 0,
+        "unpacked_image_dependencies": 0,
+        "unpacked_used_font_dependencies": 0,
+        "packed_images": 0
+      }
+    }
+  ],
+  "model_bytes_preserved": true,
+  "STL_3MF_or_slicer_projects_in_source_archive": false,
+  "geometry_modified_for_publication": false,
+  "physical_print_motion_or_acoustic_tests_repeated_for_publication": false,
+  "archive_git_config_merged_over_repository_root": false
+}

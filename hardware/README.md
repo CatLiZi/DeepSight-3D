@@ -1,6 +1,6 @@
 # 机械结构资料
 
-这个目录存放机器人头部的**机械设计资料**：3D 模型、结构图、装配图、打印件等。
+这个目录存放熊猫机器人头部与身体的**机械设计资料**：3D 模型、结构图、装配图、打印件等。
 
 > **不要和仓库根目录的 `models/` 混淆。** 那个 `models/` 装的是 **AI 模型文件**
 > （MediaPipe、SCRFD 的 `.task` / `.onnx`），是软件依赖；这里的 `hardware/` 是**硬件设计**。
@@ -14,9 +14,11 @@ hardware/
 └── print/       3D 打印导出件（直接可以丢给切片软件的文件）
 ```
 
-历史机械参考的来源与尺寸记录放在 `cad/reference/source_manifest.json`，关键视图放在 `drawings/reference/`。旧STEP与Blender参考源文件已移出仓库，另行归档。后续头部外壳的设计源文件与打印导出件继续分别归入 `cad/` 和 `print/`，提交前确认版本、大小及验证状态。
+当前暂定的熊猫建模核心文件见 [cad/README.md](cad/README.md)：头部V17放在 `cad/head_shell/`，身体V25壳体与V16圆柱底座组合放在 `cad/body_shell/`。这两份Blender原生文件来自2026年10月28日确认的交付包，保留原始内容。
 
-外壳开发者请先阅读[头部外壳源文件位置与开发者约定](cad/head_shell/README.md)，并按其中的位置、命名、单位和验证状态要求交付。
+历史机械参考的来源与尺寸记录放在 `cad/reference/source_manifest.json`，关键视图放在 `drawings/reference/`。旧STEP与底座局部Blender参考文件已移出Git历史，和当前熊猫原生模型分开记录。
+
+外壳开发者请先阅读[头部外壳源文件位置与开发者约定](cad/head_shell/README.md)及[身体源文件说明](cad/body_shell/README.md)，并按其中的位置、命名、单位和验证状态要求交付。
 
 ## 各目录放什么
 
@@ -67,7 +69,7 @@ hardware/
 
 **所以：**
 
-1. **旧STEP与Blender参考源文件保存在仓库外**；后续新设计仅提交确认需要保留的源文件和选定交付版本，中间迭代与大型打印包另行归档
+1. **仅提交确认需要保留的源文件和选定交付版本**；当前保留头部V17与身体V25/V16组合两份核心Blender工程，旧机构参考不重新入库，中间迭代与大型打印包另行归档
 2. **别把切片软件的缓存、G-code 往里放** —— G-code 动辄几百 MB，且和具体机器绑定，对别人没用
 3. 如果确实有大文件（扫描件、渲染视频），考虑：
    - 压缩后上传
@@ -120,7 +122,7 @@ Get-ChildItem hardware -Recurse -File | Sort-Object Length -Descending |
 
 ## 已整理的机械参考
 
-当前保留两张关键视图，尺寸与来源记录见 [source_manifest.json](cad/reference/source_manifest.json)。两份旧3D源文件的文件名与校验值保留在清单的 `archived_3d_sources` 中，原文件不再随Git仓库分发。
+本节为历史机构参考，保留两张关键视图，尺寸与来源记录见 [source_manifest.json](cad/reference/source_manifest.json)。两份旧3D参考源文件的文件名与校验值保留在清单的 `archived_3d_sources` 中，原文件不再随Git仓库分发。当前熊猫模型另见 [CAD核心文件](cad/README.md)。
 
 | 文件 | 用途 |
 | --- | --- |
@@ -129,7 +131,7 @@ Get-ChildItem hardware -Recurse -File | Sort-Object Length -Descending |
 
 ### 参考范围与单位
 
-以下数据来自已归档的历史3D参考，用于理解现有视图，不表示仓库仍附带可编辑模型。需要原始参考时，应另行取得归档副本，并按实物复核安装接口。
+以下数据来自历史3D机构参考，用于理解现有视图，不代表当前熊猫外壳的实测尺寸。相关旧参考原文件不随仓库提供，后续安装接口应按实物复核。
 
 历史STEP使用毫米。历史Blender参考文件内部使用米、界面显示毫米，1个Blender单位对应1米；导出到切片软件时应核对最终毫米尺寸。
 
@@ -147,4 +149,4 @@ Get-ChildItem hardware -Recurse -File | Sort-Object Length -Descending |
 
 ## 当前状态
 
-已保留两张机械参考视图、历史尺寸与来源记录，以及外壳源文件目录和开发者约定。旧STEP与Blender参考源文件不再入库；本仓库尚未收录后续外壳原文件和打印导出件，`print/` 当前只有目录占位。
+已收录用户确认的两份暂定核心Blender模型，以及两张历史机械参考视图、来源记录和外壳开发约定。两份当前模型已通过文件读取和外部资源依赖检查，SHA256见 [panda_source_manifest.json](cad/panda_source_manifest.json)。本次交付包未包含STL/3MF，`print/`仍为目录占位；制造文件应从当前对应版本导出并复核，不能仅因已入库而视为完成试装或试打印。

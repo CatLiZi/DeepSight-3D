@@ -4,8 +4,14 @@
 # Local CAD backups and slicer machine output.
 *.blend1
 *.blend2
+*.blend3
+*.blend@
+*.blend@*
+*.autosave
+blendcache_*/
 *.gcode
 .DS_Store
+panda_blender_github.zip
 
 # Legacy 3D references are archived outside Git.
 /cad/reference/jibot1-240103_asm.stp

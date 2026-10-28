@@ -1,6 +1,10 @@
 # 头部外壳源文件位置与开发者约定
 
-头部外壳的可编辑原文件统一放在本目录，即仓库根目录下的 **hardware/cad/head_shell/**。目前这里只有归档说明，尚无外壳模型；后续熊猫头或人头外壳设计均按以下约定交付。
+头部外壳的可编辑原文件统一放在本目录，即仓库根目录下的 **hardware/cad/head_shell/**。当前已收录用户于2026年10月28日确认的暂定核心模型 [panda_head_only_V17.blend](panda_head_only_V17.blend)，原始文件来自 `panda_blender_github.zip`，未修改模型内容。
+
+该文件包含头部前后壳、耳部传感器结构、镜头固定件及相机、PCB、排线、线束和紧固件参考。已使用Blender 5.2.2 LTS成功读取，场景共83个对象，内部以米计量、界面显示毫米；未发现外部链接库或未打包的图片、字体依赖。打印母件与装配副本可能同时存在，不能重复导出。
+
+配套身体模型见 [body_shell/README.md](../body_shell/README.md)，两份文件的来源与校验值见 [panda_source_manifest.json](../panda_source_manifest.json)。本次仅核对文件读取与依赖，没有重新验证打印公差、装配保持力、运动避让或声学性能；压缩包未包含对应STL/3MF。
 
 ## 文件归档位置
 
