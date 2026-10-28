@@ -8,32 +8,49 @@
     "manual_step": 80
   },
   "features": {
+    "camera_enabled": true,
     "audio_enabled": false,
-    "visual_enabled": false,
-    "camera_enabled": true
+    "visual_enabled": false
   },
   "camera": {
-    "device_name": null,
-    "video_size": null,
-    "crop_left_half": null,
+    "device_name": "USB Video Device",
+    "video_size": "3840x1080",
+    "crop_left_half": false,
     "fps": null,
-    "output_width": 640,
+    "output_width": 1920,
     "face_detector_backend": "mediapipe",
     "scrfd_model_path": null,
     "scrfd_threshold": 0.35,
-    "scrfd_input_size": 640
+    "scrfd_input_size": 640,
+    "capture_backend": "stereo_mjpeg",
+    "input_fps": 60,
+    "usb_vid": "1BCF",
+    "usb_pid": "0B15",
+    "tracking_eye": "auto",
+    "left_rotation": 180,
+    "right_rotation": 180,
+    "multi_scale_search": true,
+    "focus_assist": true,
+    "preview_jpeg_quality": 95,
+    "stereo_calibration_path": "calibration/stereo_camera.json",
+    "stereo_geometry_enabled": true
   },
   "audio_mapping": {
     "swap_channels": false
   },
   "control": {
     "control_profile": "stable",
-    "motor_guard_ms": 250
+    "motor_guard_ms": 250,
+    "smooth_motion": true,
+    "motion_hz": 50,
+    "max_velocity": 180.0,
+    "max_acceleration": 600.0,
+    "max_jerk": 3000.0
   },
   "axis_limits": {
-    "yaw_min": 1200,
+    "yaw_min": 800,
     "yaw_center": 1500,
-    "yaw_max": 1800,
+    "yaw_max": 2200,
     "pitch_min": 1200,
     "pitch_center": 1500,
     "pitch_max": 1800
@@ -43,14 +60,15 @@
     "audio_confidence_threshold": 0.2,
     "speech_confidence_threshold": 0.15,
     "doa_confidence_threshold": 0.05,
-    "required_audio_hits": 1
+    "required_audio_hits": 1,
+    "recording_enabled": false
   },
   "vision": {
     "active_speaker_enabled": true,
-    "tracking_strategy": "classic_audio_first",
+    "tracking_strategy": "visual_priority",
     "asd_backend": "rules",
     "speaker_lock_policy": "turn_hold",
-    "target_offset_x_norm": 0.04,
+    "target_offset_x_norm": 0.0,
     "target_offset_y_norm": 0.0,
     "visual_mirror_x": false,
     "visual_speaker_threshold": 0.3,
@@ -70,6 +88,24 @@
     "speaker_lost_timeout_s": 0.8,
     "audio_interrupt_enabled": false,
     "audio_search_after_silent_visual": false,
-    "silent_visual_hold_s": 1.2
+    "silent_visual_hold_s": 1.2,
+    "audio_sector_half_width_deg": 15.0
+  },
+  "audio_capture": {
+    "backend": "wasapi",
+    "device_name": "YDPI4MIC",
+    "channels": 4,
+    "sample_rate": 48000,
+    "sample_bits": 16,
+    "block_ms": 20,
+    "usb_vid": "EF09",
+    "usb_pid": "459D",
+    "wasapi_raw": true,
+    "localization_mode": "ear_pair",
+    "ear_left_channel": 3,
+    "ear_right_channel": 2,
+    "ear_mapping_confirmed": false,
+    "ear_spacing_m": 0.13176241517,
+    "ear_delay_offset_us": 0
   }
 }

@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+DEFAULT_YAW_MIN = 800
+DEFAULT_YAW_CENTER = 1500
+DEFAULT_YAW_MAX = 2200
+
+
 @dataclass(frozen=True)
 class AxisConfig:
     servo_id: int = 2
@@ -39,7 +44,8 @@ class HeadControllerLogic:
         direction: DirectionConfig | None = None,
         visual_deadband: float = 0.06,
     ):
-        self.yaw = yaw or AxisConfig(servo_id=3)
+        self.yaw = yaw or AxisConfig(servo_id=3, center=DEFAULT_YAW_CENTER,
+                                    minimum=DEFAULT_YAW_MIN, maximum=DEFAULT_YAW_MAX)
         self.pitch = pitch or AxisConfig(servo_id=2)
         self.direction = direction or DirectionConfig()
         self.visual_deadband = float(visual_deadband)
@@ -55,17 +61,15 @@ class HeadControllerLogic:
         )
 
     def pose_for_audio_direction(self, direction: str) -> HeadPose:
-        left = self.direction.yaw_left_sign
-        targets = {
-            "left": HeadPose(self.yaw.center + left * 200, self.pitch.center),
-            "right": HeadPose(self.yaw.center - left * 200, self.pitch.center),
-            "left_front": HeadPose(self.yaw.center + left * 150, self.pitch.center),
-            "right_front": HeadPose(self.yaw.center - left * 150, self.pitch.center),
-            "left_back": HeadPose(self.yaw.center + left * 300, self.pitch.center),
-            "right_back": HeadPose(self.yaw.center - left * 300, self.pitch.center),
-            "center": self.center_pose,
-        }
-        return self.clamp_pose(targets.get(str(direction), self.center_pose))
+        # Presets express a fraction of each configured side's travel. They
+        # share the same source as the web buttons, including reversed axes
+        # and asymmetric limits; no angles are inferred from servo ticks.
+        fraction = {"left": 2/3, "right": -2/3, "left_front": .5, "right_front": -.5,
+                    "left_back": 1., "right_back": -1.}.get(str(direction), 0.)
+        signed = fraction * self.direction.yaw_left_sign
+        edge = self.yaw.maximum if signed > 0 else self.yaw.minimum
+        yaw = self.yaw.center + round(abs(fraction) * (edge - self.yaw.center))
+        return self.clamp_pose(HeadPose(yaw, self.pitch.center))
 
     def apply_audio_azimuth(
         self,
@@ -109,7 +113,7 @@ class HeadControllerLogic:
         yaw_delta = (
             0
             if abs(error_x) <= yaw_band
-            else round(self.direction.yaw_left_sign * error_x * self.yaw.step_per_unit_error)
+            else round(-self.direction.yaw_left_sign * error_x * self.yaw.step_per_unit_error)
         )
         pitch_delta = (
             0

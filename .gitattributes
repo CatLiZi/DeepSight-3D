@@ -1,0 +1,8 @@
+# Keep generated binary assets byte-for-byte; never apply newline conversion.
+/models/*.onnx binary
+/models/*.task binary
+/tests/fixtures/*.npz binary
+/output/calibration/*.pdf binary
+/output/calibration/*.png binary
+# The UI backup includes a byte-level manifest; preserve its original bytes.
+/ui_backups/** -text

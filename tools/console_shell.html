@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c202c"><meta name="description" content="DeepSight 视听感知人头控制台：双目视觉、两耳定位与双轴运动。">
+  <title>DeepSight · 视听感知控制台</title><link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/console.css?v=console-r36-20261028">
+</head>
+<body>
+<svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+  <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M8 6 10 3h4l2 3h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"/><circle cx="12" cy="12" r="4"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 10v4m4-8v12m5-16v20m5-16v12m4-8v4"/></symbol>
+  <symbol id="i-control" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18m-6-6-3-3-3 3m6 12-3 3-3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></symbol>
+  <symbol id="i-log" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4 10 14m0-10H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+</defs></svg>
+<a class="skip-link" href="#workspace-main">跳至工作区</a>
+<div class="console-app">
+  <aside class="sidebar" aria-label="主导航">
+    <a class="brand" href="#live" aria-label="DeepSight 首页"><span class="brand-symbol"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 9h22v14H5Z"/><circle cx="11" cy="16" r="3"/><circle cx="21" cy="16" r="3"/><path d="M16 5v4m0 14v4"/></svg></span><span class="brand-name">DEEPSIGHT<small>PERCEPTION STUDIO</small></span></a>
+    <div class="sidebar-caption">工作空间 <span>01</span></div>
+    <nav class="nav-list">
+      <a class="nav-item active" href="#live" data-view="live" aria-current="page"><svg class="icon"><use href="#i-overview"/></svg><span>实时感知</span><i></i></a>
+      <a class="nav-item" href="#control" data-view="control"><svg class="icon"><use href="#i-control"/></svg><span>头部控制</span></a>
+      <a class="nav-item" href="#devices" data-view="devices"><svg class="icon"><use href="#i-settings"/></svg><span>设备与标定</span></a>
+      <a class="nav-item" href="#logs" data-view="logs"><svg class="icon"><use href="#i-log"/></svg><span>运行日志</span></a>
+    </nav>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-caption">项目资源</div>
+    <a class="nav-item resource-link" href="http://127.0.0.1:8769/" target="_blank" rel="noopener"><svg class="icon"><use href="#i-log"/></svg><span>进展汇报</span><svg class="icon external"><use href="#i-external"/></svg></a>
+    <a class="nav-item resource-link" href="/static/legacy-r30/index.html" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg><span>旧版界面</span></a>
+    <div class="sidebar-bottom"><div class="device-brief"><span class="device-dot" id="ui-device-dot"></span><div><b>本地硬件工作站</b><small id="ui-device-summary">等待设备状态</small></div></div><div class="version-line"><span><span id="ui-runtime-revision">等待算法版本</span></span><span>LOCAL</span></div></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumb"><span class="breadcrumb-root">DeepSight</span><span class="slash">/</span><b id="ui-breadcrumb">实时感知</b><span class="local-badge">本地工作区</span></div>
+      <div class="topbar-status"><span id="ui-freshness">等待数据</span><span class="chip connection-chip" id="status-chip">连接中</span></div>
+    </header>
+    <main id="workspace-main" tabindex="-1">
+      <div class="workspace-heading"><div><p class="eyebrow">AUDIOVISUAL ROBOTICS PLATFORM</p><h1 id="ui-page-title">感知工作台<span class="heading-dot">.</span></h1><p id="ui-page-description">双目视觉、双耳声源与头部动作，在同一工作区协同。</p></div><div class="heading-actions"><!-- GLOBAL_ACTIONS --></div></div>
+      <div class="operation-bar"><div class="feature-switches"><!-- FEATURE_SWITCHES --></div><span id="action-feedback" class="chip feedback-chip" role="status">就绪</span></div>
+      <div class="summary-grid" aria-label="实时状态概览">
+        <article class="summary-card"><span class="summary-icon"><svg class="icon"><use href="#i-camera"/></svg></span><span class="summary-label">相机采集</span><strong><span id="ui-capture-fps">—</span><small>FPS</small></strong><span class="summary-detail" id="ui-camera-size">等待双目画面</span></article>
+        <article class="summary-card"><span class="summary-icon cyan"><svg class="icon"><use href="#i-wave"/></svg></span><span class="summary-label">音频输入</span><strong><span id="ui-audio-channels">—</span><small>CH</small></strong><span class="summary-detail" id="ui-audio-format">等待音频设备</span></article>
+        <article class="summary-card"><span class="summary-icon violet"><svg class="icon"><use href="#i-overview"/></svg></span><span class="summary-label">视觉候选</span><strong><span id="ui-candidate-count">—</span><small>个</small></strong><span class="summary-detail" id="ui-target-summary">等待有效观察</span></article>
+        <article class="summary-card state-summary"><span class="summary-icon slate"><svg class="icon"><use href="#i-control"/></svg></span><span class="summary-label">自动控制</span><strong id="ui-run-state">等待</strong><span class="summary-detail" id="ui-run-description">正在读取控制状态</span></article>
+      </div>
+
+      <section class="workspace-view" id="view-live" aria-label="实时感知">
+        <div class="live-grid">
+          <div class="vision-column">
+            <article class="panel vision-panel" id="ui-vision-panel" data-layout="stereo">
+              <header class="panel-head"><div class="panel-title"><span class="panel-icon"><svg class="icon"><use href="#i-camera"/></svg></span><div><h2>双目视觉</h2><p>STEREO PERCEPTION</p></div></div><span id="visual-state" class="soft-tag">等待画面</span></header>
+              <div class="vision-toolbar"><span class="live-label"><i></i><span id="ui-eye-label">实时画面</span></span><div class="segmented" role="group" aria-label="画面布局"><button type="button" data-layout="focus" aria-pressed="false">主视角</button><button type="button" data-layout="stereo" aria-pressed="true">双目并排</button></div></div>
+              <div class="vision-stage"><div class="tracking-view"><!-- MAIN_PREVIEW --><div class="image-caption"><span>FOLLOW VIEW</span><span id="ui-frame-sequence">等待帧</span></div></div><!-- BINOCULAR_CONTENT --></div>
+              <div class="vision-data"><!-- VISION_STATUS --></div>
+              <details class="diagnostic-details"><summary>画面几何与跟踪说明<span class="summary-arrow">↗</span></summary><div><!-- VISION_NOTES --></div></details>
+            </article>
+            <!-- FACE_SCORE -->
+            <div class="workflow-strip"><span class="workflow-step"><i>01</i>采集</span><b>→</b><span class="workflow-step"><i>02</i>感知</span><b>→</b><span class="workflow-step"><i>03</i>目标选择</span><b>→</b><span class="workflow-step"><i>04</i>连续控制</span><span class="workflow-caption">视觉主导 · 声音辅助</span></div>
+          </div>
+          <aside class="insight-column" aria-label="声音与运行状态">
+            <article class="panel acoustic-panel"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg class="icon"><use href="#i-wave"/></svg></span><div><h2>声源定位</h2><p>ACOUSTIC DIRECTION</p></div></div><span id="audio-confidence" class="soft-tag">—</span></header><div class="radar-surface"><!-- DIRECTION_CANVAS --></div><div class="audio-primary-metric"><span>当前方向</span><!-- DIRECTION_VALUE --><span class="mini-badge">±15° 范围可调</span></div><div class="speech-row"><span>人声活动</span><strong id="ui-speech-value">—</strong></div><div class="speech-track"><i id="ui-speech-bar"></i></div><div class="channels-heading"><span>输入通道</span><small>CH2 / CH3 · 两耳</small></div><!-- EAR_LEVELS --><p class="acoustic-state" id="ui-acoustic-state">等待音频输入</p><details class="diagnostic-details"><summary>输入状态与信号诊断<span class="summary-arrow">↗</span></summary><div><!-- AUDIO_DIAGNOSTICS --></div></details><button class="text-button" type="button" data-go-view="devices" data-focus-target="audio-settings">音频设备配置<svg class="icon"><use href="#i-arrow"/></svg></button></article>
+            <article class="panel motion-brief"><div class="panel-title"><span class="panel-icon slate"><svg class="icon"><use href="#i-control"/></svg></span><div><h2>运动链路</h2><p>MOTION CONTROL</p></div></div><dl><div><dt>连接端口</dt><dd id="ui-motion-port">—</dd></div><div><dt>轨迹模式</dt><dd id="ui-motion-profile">—</dd></div><div><dt>当前动作</dt><dd id="ui-motion-state">等待状态</dd></div></dl><p class="panel-note" id="ui-adaptive-motion">正在读取追踪状态</p><p class="brief-note">位置与手动操作请进入头部控制。</p><button class="text-button" type="button" data-go-view="control">打开控制面板<svg class="icon"><use href="#i-arrow"/></svg></button></article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="workspace-view" id="view-control" aria-label="头部控制" hidden><div class="control-workspace"><article class="panel manual-panel"><header class="panel-head"><div class="panel-title"><span class="panel-icon"><svg class="icon"><use href="#i-control"/></svg></span><div><h2>双轴头部控制</h2><p>YAW / PITCH</p></div></div><span id="servo-config" class="soft-tag">等待连接配置</span></header><!-- MANUAL_CONTROL --></article><article class="panel motion-config-panel"><header class="panel-head"><div><h2>连接与运动参数</h2><p class="panel-subtitle">控制板、轴范围与连续运动配置</p></div></header><!-- MOTION_CONFIG --></article></div></section>
+
+      <section class="workspace-view" id="view-devices" aria-label="设备与标定" hidden><div class="setup-grid"><article class="panel" id="audio-settings"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg class="icon"><use href="#i-wave"/></svg></span><div><h2>音频设备</h2><p>CAPTURE & CHANNEL MAPPING</p></div></div><span class="soft-tag">四路采集</span></header><p class="panel-description">两耳参与方向估计，身体通道继续保留采集。</p><h3 class="form-section-title">耳部通道与几何</h3><!-- EAR_CONFIG --><h3 class="form-section-title">声学处理参数</h3><!-- AUDIO_CONFIG --></article><article class="panel" id="camera-settings"><header class="panel-head"><div class="panel-title"><span class="panel-icon"><svg class="icon"><use href="#i-camera"/></svg></span><div><h2>相机与跟踪策略</h2><p>CAMERA & TRACKING</p></div></div></header><p class="panel-description">完整保留双目采集，设置每眼处理与目标选择参数。</p><!-- CAMERA_CONFIG --></article><article class="panel calibration-workspace"><header class="panel-head"><div><h2>标定与图像诊断</h2><p class="panel-subtitle">几何校正、焦点辅助与原始采集</p></div></header><!-- RECTIFICATION_CONTROL --><!-- CALIBRATION --><!-- FOCUS --><!-- STEREO --></article></div></section>
+
+      <section class="workspace-view" id="view-logs" aria-label="运行日志" hidden><article class="panel journal-panel"><header class="panel-head"><div class="panel-title"><span class="panel-icon"><svg class="icon"><use href="#i-log"/></svg></span><div><h2>事件与故障</h2><p>RUNTIME JOURNAL</p></div></div><!-- CLEAR_LOG --></header><div class="log-downloads"><a class="button" href="/api/diagnostics/log/runtime" download>下载运行日志<svg class="icon"><use href="#i-external"/></svg></a><a class="button" href="/api/diagnostics/log/serial" download>下载串口日志<svg class="icon"><use href="#i-external"/></svg></a><span>完整日志保存在本机</span></div><!-- EVENT_LOG --><details class="diagnostic-details"><summary>采集与处理详情<span class="summary-arrow">↗</span></summary><div><!-- RUNTIME_DIAGNOSTICS --></div></details></article></section>
+      <footer class="workspace-footer"><span><i></i>DeepSight · 视听感知人头</span><span>R31 UI <b>/</b> 本地运行 <b>/</b> <a href="/static/legacy-r30/index.html" target="_blank" rel="noopener">旧版界面 ↗</a></span></footer>
+    </main>
+  </div>
+</div>
+<script src="/static/audio_view.js?v=console-r36-20261028"></script>
+<script src="/static/ui_shell.js?v=console-r36-20261028"></script>
+<script src="/static/app.js?v=console-r36-20261028"></script>
+</body></html>

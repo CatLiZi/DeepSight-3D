@@ -1,0 +1,199 @@
+{
+  "schema": 1,
+  "origin": "real_charuco_alignment_preview",
+  "created_at": "2026-10-28T18:05:33.096316+08:00",
+  "metres_are_nominal": true,
+  "image_size": [
+    1920,
+    1080
+  ],
+  "rotations": [
+    180,
+    180
+  ],
+  "board": {
+    "squares_x": 7,
+    "squares_y": 10,
+    "square_length_m": 0.02,
+    "marker_length_m": 0.015,
+    "dictionary": "DICT_4X4_100",
+    "legacy_pattern": false
+  },
+  "device": {
+    "usb_vid": "1BCF",
+    "usb_pid": "0B15"
+  },
+  "K_left": [
+    [
+      829.7438472279292,
+      0.0,
+      949.3160111779345
+    ],
+    [
+      0.0,
+      824.4353649992403,
+      542.1234951686004
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "D_left": [
+    [
+      -0.006005782322540946,
+      -0.02729661957723227,
+      0.00023014764963756574,
+      -0.004488266420182489,
+      0.0
+    ]
+  ],
+  "K_right": [
+    [
+      824.1197435466084,
+      0.0,
+      935.019655326351
+    ],
+    [
+      0.0,
+      824.7432118996885,
+      542.1946323620422
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "D_right": [
+    [
+      -0.01908639862324262,
+      -0.024596592781497777,
+      -0.0008164789334143756,
+      -0.006787005300013921,
+      0.0
+    ]
+  ],
+  "R": [
+    [
+      0.9908385436882281,
+      -0.07335075708909182,
+      -0.11339597336876037
+    ],
+    [
+      0.07450512792392958,
+      0.997202760175488,
+      0.005970009332217482
+    ],
+    [
+      0.1126408729317669,
+      -0.01436389685443749,
+      0.993531938194402
+    ]
+  ],
+  "T": [
+    [
+      -0.08923311169980849
+    ],
+    [
+      -0.004806752128746655
+    ],
+    [
+      -0.0036529616461628838
+    ]
+  ],
+  "quality": {
+    "status": "alignment_preview",
+    "alignment_checks": {
+      "left_rms": true,
+      "right_rms": true,
+      "stereo_rms": true,
+      "holdout_epipolar": true,
+      "baseline_plausible": true,
+      "horizontal_baseline": true,
+      "horizontal_coverage": true,
+      "vertical_coverage": true,
+      "scale_diversity": true,
+      "pose_diversity": true,
+      "current_relative_pose_holdout": true,
+      "final_assembly_holdout": true
+    },
+    "metric_scale_confirmed": false,
+    "known_distance_accuracy_verified": false,
+    "full_calibration_passed": false,
+    "holdout_epipolar_p95_px": 1.6434127569198604
+  },
+  "paper_flatness_verified": false,
+  "motion_stability_required": false,
+  "selection_policy": "All frames with >=12 shared corners; deduplicate by pose and prefer more corners; no model residual used",
+  "source_full_quality": {
+    "status": "rejected",
+    "checks": {
+      "left_rms": true,
+      "right_rms": true,
+      "stereo_rms": true,
+      "holdout_epipolar": true,
+      "holdout_reprojection": false,
+      "baseline_plausible": true,
+      "horizontal_baseline": true,
+      "horizontal_coverage": true,
+      "vertical_coverage": true,
+      "scale_diversity": true,
+      "pose_diversity": true
+    },
+    "geometry_checks_passed": false,
+    "fit_method": "joint_intrinsics_fixed_k3",
+    "initial_separate_rms_px": [
+      1.4312664399911714,
+      1.3055020638586794
+    ],
+    "left_rms_px": 1.4862786086056679,
+    "right_rms_px": 1.3453425885344577,
+    "stereo_rms_px": 1.5663178338563664,
+    "holdout_epipolar_p95_px": 1.6434127569198604,
+    "epipolar_reference_focal_px": 824.5892884494644,
+    "holdout_reprojection_p95_px": 5.780286741256703,
+    "baseline_m": 0.08943711320501152,
+    "pose_span_deg": 72.40788348981486,
+    "training_pairs": 67,
+    "holdout_pairs": 16,
+    "metric_scale_confirmed": false,
+    "diagnostic_only": true,
+    "known_distance_accuracy_verified": false
+  },
+  "metric_geometry_enabled": false,
+  "alignment_preview_activation_requested": true,
+  "metric_runtime_activation_requested": false,
+  "source_evidence": {
+    "path": "all-corner-diagnostic-fit.json",
+    "sha256": "0dff36efa8b04a295dbca44ec24c54b6de26ab6732678f95adf5f6465ae340fb",
+    "corner_poses": 83,
+    "strict_motion_selected": false,
+    "mode": "exploratory_image_alignment_only"
+  },
+  "refinement_scope": "relative_pose_alignment_only_fixed_intrinsics_nominal_scale",
+  "alignment_refinement": {
+    "method": "fixed_intrinsics_fixed_translation_relative_rotation_sampson_soft_l1",
+    "source_profile_sha256": "4520e64b0f10fc27d675032403c751e2236d958b26caa34f6ae826c8df9cf0c9",
+    "evidence": "hardware_inventory/final-av-integration-20261028",
+    "intrinsic_parameters_changed": false,
+    "translation_changed": false,
+    "nominal_baseline_changed": false,
+    "relative_rotation_correction_deg": 1.1900596908843961,
+    "native_pairs_captured": 329,
+    "board_pairs_decoded": 74,
+    "development_board_frames": 22,
+    "withheld_lower_board_pose_frames": 13,
+    "new_post_fit_validation_images": 8,
+    "within_session_check_frames": 39,
+    "fresh_validation_p95_max_px": 2.84,
+    "charuco_holdout_p95_max_px": 2.5907687201625547,
+    "paper_flatness_verified": false,
+    "formal_metric_calibration_performed": false,
+    "known_distance_accuracy_verified": false,
+    "current_alignment_validation_passed": true,
+    "scope": "final-assembly alignment; hand-held board, limited laboratory scene; not full-field accuracy certification",
+    "horizontal_disparity_preserved": true
+  }
+}

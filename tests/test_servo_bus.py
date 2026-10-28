@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from locator_demo.head import AxisConfig, HeadPose
 from locator_demo.servo_bus import SerialPortCandidate, ZPServoBus, TwoAxisHeadHardware, choose_servo_port
@@ -42,7 +43,7 @@ class FakeSerial:
 
 
 class ServoBusTests(unittest.TestCase):
-    def test_reads_position_and_sets_mode_before_move(self):
+    def test_reads_position_and_enables_torque_without_rewriting_mode(self):
         fake = FakeSerial()
         fake.responses = [b"#002P1500!", b"#OK!"]
         bus = ZPServoBus(serial_factory=lambda *_args, **_kwargs: fake)
@@ -50,7 +51,7 @@ class ServoBusTests(unittest.TestCase):
         self.assertEqual(bus.read_position(2), 1500)
         bus.move(2, 1400, 3000)
 
-        self.assertEqual(fake.writes, ["#002PRAD!", "#002PULR!", "#002PMOD1!", "#002P1400T3000!"])
+        self.assertEqual(fake.writes, ["#002PRAD!", "#002PULR!", "#002P1400T3000!"])
 
     def test_scans_ids_using_pid(self):
         fake = FakeSerial()
@@ -63,6 +64,8 @@ class ServoBusTests(unittest.TestCase):
         fake = FakeSerial()
         fake.responses = [b"#OK!"]
         bus = ZPServoBus(serial_factory=lambda *_args, **_kwargs: fake)
+        # Transport-shape tests isolate activation, covered separately.
+        bus.activate_axis=Mock(side_effect=lambda axis,**kw: kw.get('expected_position') or axis.center)
         head = TwoAxisHeadHardware(
             bus,
             yaw=None,
@@ -71,12 +74,14 @@ class ServoBusTests(unittest.TestCase):
 
         head.move_to(HeadPose(yaw=1700, pitch=1400), time_ms=1000)
 
-        self.assertEqual(fake.writes, ["#002PULR!", "#002PMOD1!", "#002P1400T1000!"])
+        self.assertEqual(fake.writes, ["#002PULR!", "#002P1400T1000!"])
 
     def test_two_axis_hardware_skips_axes_that_did_not_change(self):
         fake = FakeSerial()
         fake.responses = [b"#OK!"]
         bus = ZPServoBus(serial_factory=lambda *_args, **_kwargs: fake)
+        # Transport-shape tests isolate activation, covered separately.
+        bus.activate_axis=Mock(side_effect=lambda axis,**kw: kw.get('expected_position') or axis.center)
         head = TwoAxisHeadHardware(
             bus,
             yaw=AxisConfig(servo_id=0, minimum=1200, maximum=1800),
@@ -85,7 +90,7 @@ class ServoBusTests(unittest.TestCase):
 
         head.move_to(HeadPose(yaw=1510, pitch=1500), time_ms=500, current=HeadPose(yaw=1500, pitch=1500))
 
-        self.assertEqual(fake.writes, ["#000PULR!", "#000PMOD1!", "#000P1510T0500!"])
+        self.assertEqual(fake.writes, ["#000PULR!", "#000P1510T0500!"])
 
     def test_servo_bus_arms_each_servo_once_for_repeated_moves(self):
         fake = FakeSerial()
@@ -94,11 +99,13 @@ class ServoBusTests(unittest.TestCase):
         bus.move(2, 1510, 500)
         bus.move(2, 1520, 500)
 
-        self.assertEqual(fake.writes, ["#002PULR!", "#002PMOD1!", "#002P1510T0500!", "#002P1520T0500!"])
+        self.assertEqual(fake.writes, ["#002PULR!", "#002P1510T0500!", "#002P1520T0500!"])
 
     def test_two_axis_hardware_uses_cached_pitch_arm_by_default(self):
         fake = FakeSerial()
         bus = ZPServoBus(serial_factory=lambda *_args, **_kwargs: fake)
+        # Transport-shape tests isolate activation, covered separately.
+        bus.activate_axis=Mock(side_effect=lambda axis,**kw: kw.get('expected_position') or axis.center)
         head = TwoAxisHeadHardware(
             bus,
             yaw=AxisConfig(servo_id=0, minimum=1200, maximum=1800),
@@ -112,7 +119,6 @@ class ServoBusTests(unittest.TestCase):
             fake.writes,
             [
                 "#002PULR!",
-                "#002PMOD1!",
                 "#002P1450T0500!",
                 "#002P1550T0500!",
             ],
@@ -121,6 +127,8 @@ class ServoBusTests(unittest.TestCase):
     def test_two_axis_hardware_can_force_rearm_pitch_for_repeated_moves(self):
         fake = FakeSerial()
         bus = ZPServoBus(serial_factory=lambda *_args, **_kwargs: fake)
+        # Transport-shape tests isolate activation, covered separately.
+        bus.activate_axis=Mock(side_effect=lambda axis,**kw: kw.get('expected_position') or axis.center)
         head = TwoAxisHeadHardware(
             bus,
             yaw=AxisConfig(servo_id=0, minimum=1200, maximum=1800),
@@ -135,10 +143,8 @@ class ServoBusTests(unittest.TestCase):
             fake.writes,
             [
                 "#002PULR!",
-                "#002PMOD1!",
                 "#002P1450T0500!",
                 "#002PULR!",
-                "#002PMOD1!",
                 "#002P1550T0500!",
             ],
         )

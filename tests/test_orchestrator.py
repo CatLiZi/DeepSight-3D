@@ -93,13 +93,14 @@ class OrchestratorTests(unittest.TestCase):
         self.assertTrue(state.audio_ready)
 
     def test_denoise_double_check_rejects_noise_like_trigger(self):
-        localizer = FfmpegAudioLocalizer(denoise=True)
+        localizer = FfmpegAudioLocalizer(denoise=True, use_denoised_for_localization=True)
         raw = AudioEstimate(
             AudioDirection.LEFT,
             0.8,
             0.00022,
             0.5,
-            speech_confidence=0.9,
+            speech_confidence=0.6,
+            noise_state="speech_like",
             doa_confidence=0.9,
         )
         denoised = AudioEstimate(
@@ -111,10 +112,11 @@ class OrchestratorTests(unittest.TestCase):
             doa_confidence=0.02,
         )
 
-        gated = localizer._voice_gate(raw, denoised)
+        localizer._human_voice_double_check(raw, denoised)
+        gated = localizer._human_voice_double_check(raw, denoised)
 
         self.assertEqual(gated.direction, AudioDirection.UNKNOWN)
-        self.assertEqual(gated.noise_state, "denoise_double_check_failed")
+        self.assertEqual(gated.noise_state, "noise")
 
     def test_visual_target_needs_mouth_evidence_after_audio(self):
         sm = LocatorStateMachine(required_audio_hits=1)

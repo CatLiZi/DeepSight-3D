@@ -1,10 +1,33 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .head import DirectionConfig
+from .head import DirectionConfig, DEFAULT_YAW_MIN, DEFAULT_YAW_CENTER, DEFAULT_YAW_MAX
+from .ear_localization import EarPairConfig
+
+
+def validate_servo_ids(yaw_id, pitch_id):
+    for name, value in (("yaw_id", yaw_id), ("pitch_id", pitch_id)):
+        if name == "yaw_id" and value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 253:
+            raise ValueError(f'{name} 必须是 0–253 的整数')
+    if yaw_id is not None and yaw_id == pitch_id:
+        raise ValueError('左右轴与俯仰轴不能使用相同的舵机 ID')
+
+
+def validate_axis_limits(values):
+    for axis in ('yaw', 'pitch'):
+        lo, center, hi = (values[axis + '_' + key] for key in ('min', 'center', 'max'))
+        if any(isinstance(v, bool) or not isinstance(v, int) or not 500 <= v <= 2500
+               for v in (lo, center, hi)):
+            raise ValueError(f'{axis} 位置必须在 500–2500 范围内；不自动截断')
+        if not lo < center < hi:
+            raise ValueError(f'{axis} 必须满足 下限 < 中位 < 上限；不自动交换或改写')
 
 
 def _axis_value(value: int, default: int) -> int:
@@ -57,7 +80,7 @@ def _optional_fps(value: int | None) -> int | None:
     if value is None:
         return None
     try:
-        return max(1, min(30, int(value)))
+        return max(1, min(240, int(value)))
     except Exception:
         return None
 
@@ -99,13 +122,31 @@ class CameraConfig:
     video_size: str | None = None
     crop_left_half: bool | None = None
     fps: int | None = None
-    output_width: int = 640
+    output_width: int = 1920
     face_detector_backend: str = "mediapipe"
     scrfd_model_path: str | None = None
     scrfd_threshold: float = 0.35
     scrfd_input_size: int = 640
+    capture_backend: str = "stereo_mjpeg"
+    input_fps: int = 60
+    usb_vid: str = "1BCF"
+    usb_pid: str = "0B15"
+    tracking_eye: str = "auto"
+    left_rotation: int = 0
+    right_rotation: int = 0
+    multi_scale_search: bool = True
+    focus_assist: bool = True
+    preview_jpeg_quality: int = 95
+    stereo_calibration_path: str = "calibration/stereo_camera.json"
+    stereo_geometry_enabled: bool = True
 
     def __post_init__(self) -> None:
+        if not 70 <= int(self.preview_jpeg_quality) <= 100:
+            raise ValueError("Preview JPEG quality must be 70..100")
+        if self.tracking_eye not in ("auto", "left", "right") or self.left_rotation not in (0, 180) or self.right_rotation not in (0, 180):
+            raise ValueError("Invalid per-eye orientation or tracking eye")
+        object.__setattr__(self, "capture_backend", self.capture_backend if self.capture_backend in ("stereo_mjpeg", "legacy") else "stereo_mjpeg")
+        object.__setattr__(self, "input_fps", max(1, min(240, int(self.input_fps))))
         object.__setattr__(self, "fps", _optional_fps(self.fps))
         object.__setattr__(self, "output_width", _output_width(self.output_width, 640))
         object.__setattr__(self, "face_detector_backend", _face_detector_backend(self.face_detector_backend))
@@ -121,9 +162,49 @@ class AudioMappingConfig:
 
 
 @dataclass(frozen=True)
+class AudioCaptureConfig:
+    backend: str = "wasapi"
+    device_name: str = "YDPI4MIC"
+    channels: int = 4
+    sample_rate: int = 48000
+    sample_bits: int = 16
+    block_ms: int = 20
+    usb_vid: str = "EF09"
+    usb_pid: str = "459D"
+    wasapi_raw: bool = True
+    localization_mode: str = "disabled"
+    ear_left_channel: int | None = None
+    ear_right_channel: int | None = None
+    ear_mapping_confirmed: bool = False
+    ear_spacing_m: float | None = None
+    ear_delay_offset_us: float = 0.0
+
+    def __post_init__(self):
+        if self.backend not in ("wasapi", "legacy"):
+            raise ValueError("Unknown audio capture backend")
+        if self.backend == "wasapi" and (self.channels, self.sample_rate, self.sample_bits) != (4, 48000, 16):
+            raise ValueError("Selected four-mic profile requires 4 channels / 48000 Hz / 16 bit")
+        is_array = ('YDPI4MIC' in self.device_name.upper() or
+                    (self.usb_vid.upper(), self.usb_pid.upper()) == ('EF09', '459D'))
+        if is_array and (self.backend != 'wasapi' or not self.wasapi_raw):
+            raise ValueError('YDPI4MIC requires four-channel WASAPI RAW; stereo downmix/DSP is not localization input')
+        object.__setattr__(self, "block_ms", max(5, min(100, int(self.block_ms))))
+        self.ear_pair_config()
+
+    def ear_pair_config(self):
+        return EarPairConfig(self.localization_mode, self.ear_left_channel, self.ear_right_channel,
+                             self.ear_mapping_confirmed, self.ear_spacing_m, self.ear_delay_offset_us)
+
+
+@dataclass(frozen=True)
 class ControlConfig:
     control_profile: str = "stable"
     motor_guard_ms: int = 250
+    smooth_motion: bool = True
+    motion_hz: int = 50
+    max_velocity: float = 180.0
+    max_acceleration: float = 600.0
+    max_jerk: float = 3000.0
 
     def __post_init__(self) -> None:
         profile = str(self.control_profile or "stable").strip().lower()
@@ -131,21 +212,25 @@ class ControlConfig:
             profile = "stable"
         object.__setattr__(self, "control_profile", profile)
         object.__setattr__(self, "motor_guard_ms", max(0, min(1500, int(self.motor_guard_ms))))
+        object.__setattr__(self, "motion_hz", max(10, min(100, int(self.motion_hz))))
+        object.__setattr__(self, "max_velocity", max(20.0, min(600.0, float(self.max_velocity))))
+        object.__setattr__(self, "max_acceleration", max(50.0, min(3000.0, float(self.max_acceleration))))
+        object.__setattr__(self, "max_jerk", max(200.0, min(20000.0, float(self.max_jerk))))
 
 
 @dataclass(frozen=True)
 class AxisLimitsConfig:
-    yaw_min: int = 1200
-    yaw_center: int = 1500
-    yaw_max: int = 1800
+    yaw_min: int = DEFAULT_YAW_MIN
+    yaw_center: int = DEFAULT_YAW_CENTER
+    yaw_max: int = DEFAULT_YAW_MAX
     pitch_min: int = 1200
     pitch_center: int = 1500
     pitch_max: int = 1800
 
     def __post_init__(self) -> None:
-        yaw_min = _axis_value(self.yaw_min, 1200)
-        yaw_max = _axis_value(self.yaw_max, 1800)
-        yaw_center = _axis_value(self.yaw_center, 1500)
+        yaw_min = _axis_value(self.yaw_min, DEFAULT_YAW_MIN)
+        yaw_max = _axis_value(self.yaw_max, DEFAULT_YAW_MAX)
+        yaw_center = _axis_value(self.yaw_center, DEFAULT_YAW_CENTER)
         pitch_min = _axis_value(self.pitch_min, 1200)
         pitch_max = _axis_value(self.pitch_max, 1800)
         pitch_center = _axis_value(self.pitch_center, 1500)
@@ -222,6 +307,7 @@ class AudioProcessingConfig:
 class VisionProcessingConfig:
     active_speaker_enabled: bool = True
     tracking_strategy: str = "classic_audio_first"
+    audio_sector_half_width_deg: float = 15.0
     asd_backend: str = "rules"
     speaker_lock_policy: str = "turn_hold"
     target_offset_x_norm: float = 0.04
@@ -248,9 +334,10 @@ class VisionProcessingConfig:
 
     def __post_init__(self) -> None:
         strategy = str(self.tracking_strategy or "classic_audio_first").strip().lower()
-        if strategy not in ("classic_audio_first", "crowded_visual_first"):
+        if strategy not in ("classic_audio_first", "crowded_visual_first", "audio_visual_guided", "visual_priority"):
             strategy = "classic_audio_first"
         object.__setattr__(self, "tracking_strategy", strategy)
+        object.__setattr__(self,'audio_sector_half_width_deg',max(5.,min(30.,float(self.audio_sector_half_width_deg))))
         backend = str(self.asd_backend or "rules").strip().lower()
         if backend not in ("rules", "talknet"):
             backend = "rules"
@@ -334,6 +421,7 @@ class SavedSettings:
     features: FeatureConfig = field(default_factory=FeatureConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     audio_mapping: AudioMappingConfig = field(default_factory=AudioMappingConfig)
+    audio_capture: AudioCaptureConfig = field(default_factory=AudioCaptureConfig)
     control: ControlConfig = field(default_factory=ControlConfig)
     axis_limits: AxisLimitsConfig = field(default_factory=AxisLimitsConfig)
     audio: AudioProcessingConfig = field(default_factory=AudioProcessingConfig)
@@ -352,12 +440,23 @@ def load_settings(path: Path | str | None) -> SavedSettings:
         return SavedSettings()
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except Exception:
-        return SavedSettings()
+    except (OSError, ValueError) as exc:
+        raise ValueError(f'无法读取配置 {settings_path}；请检查或恢复备份，不会自动退回旧中位：{exc}') from exc
+    if not isinstance(data, dict):
+        raise ValueError(f'配置 {settings_path} 必须为 JSON 对象，不会使用默认中位替代')
+    for section in ('direction', 'features', 'camera', 'audio_mapping', 'audio_capture',
+                    'control', 'axis_limits', 'audio', 'vision'):
+        if section in data and not isinstance(data[section], dict):
+            raise ValueError(f'配置 {settings_path} 中 {section} 必须为对象')
+    validate_servo_ids(data.get('yaw_id'), data.get('pitch_id', 2))
+    # Validate explicit persisted bounds before the legacy normalizer can
+    # silently clamp or exchange them. Missing keys retain migration defaults.
+    validate_axis_limits({**asdict(AxisLimitsConfig()), **(data.get('axis_limits') or {})})
     direction_data = data.get("direction") or {}
     features_data = data.get("features") or {}
     camera_data = data.get("camera") or {}
     audio_mapping_data = data.get("audio_mapping") or {}
+    audio_capture_data = data.get("audio_capture") or {}
     control_data = data.get("control") or {}
     axis_limits_data = data.get("axis_limits") or {}
     audio_data = data.get("audio") or {}
@@ -382,23 +481,42 @@ def load_settings(path: Path | str | None) -> SavedSettings:
             video_size=(camera_data.get("video_size") or None),
             crop_left_half=None if crop_left_half is None else bool(crop_left_half),
             fps=camera_data.get("fps"),
-            output_width=int(camera_data.get("output_width", 640)),
+            output_width=int(camera_data.get("output_width", 1920)),
             face_detector_backend=str(camera_data.get("face_detector_backend", "mediapipe")),
             scrfd_model_path=(camera_data.get("scrfd_model_path") or None),
             scrfd_threshold=float(camera_data.get("scrfd_threshold", 0.35)),
             scrfd_input_size=int(camera_data.get("scrfd_input_size", 640)),
+            capture_backend=str(camera_data.get("capture_backend", "stereo_mjpeg")),
+            input_fps=int(camera_data.get("input_fps", 60)),
+            usb_vid=str(camera_data.get("usb_vid", "1BCF")),
+            usb_pid=str(camera_data.get("usb_pid", "0B15")),
+            tracking_eye=str(camera_data.get("tracking_eye", "auto")),
+            left_rotation=int(camera_data.get("left_rotation", 0)),
+            right_rotation=int(camera_data.get("right_rotation", 0)),
+            multi_scale_search=bool(camera_data.get("multi_scale_search", True)),
+            focus_assist=bool(camera_data.get("focus_assist", True)),
+            preview_jpeg_quality=int(camera_data.get("preview_jpeg_quality", 95)),
+            stereo_calibration_path=str(camera_data.get("stereo_calibration_path", "calibration/stereo_camera.json")),
+            stereo_geometry_enabled=bool(camera_data.get("stereo_geometry_enabled", True)),
         ),
         audio_mapping=AudioMappingConfig(
             swap_channels=bool(audio_mapping_data.get("swap_channels", False)),
         ),
+        audio_capture=AudioCaptureConfig(**{key: value for key, value in audio_capture_data.items()
+                                            if key in AudioCaptureConfig.__dataclass_fields__}),
         control=ControlConfig(
             control_profile=str(control_data.get("control_profile", "stable")),
             motor_guard_ms=int(control_data.get("motor_guard_ms", 250)),
+            smooth_motion=bool(control_data.get("smooth_motion", True)),
+            motion_hz=int(control_data.get("motion_hz", 50)),
+            max_velocity=float(control_data.get("max_velocity", 180)),
+            max_acceleration=float(control_data.get("max_acceleration", 600)),
+            max_jerk=float(control_data.get("max_jerk", 3000)),
         ),
         axis_limits=AxisLimitsConfig(
-            yaw_min=int(axis_limits_data.get("yaw_min", 1200)),
-            yaw_center=int(axis_limits_data.get("yaw_center", 1500)),
-            yaw_max=int(axis_limits_data.get("yaw_max", 1800)),
+            yaw_min=int(axis_limits_data.get("yaw_min", DEFAULT_YAW_MIN)),
+            yaw_center=int(axis_limits_data.get("yaw_center", DEFAULT_YAW_CENTER)),
+            yaw_max=int(axis_limits_data.get("yaw_max", DEFAULT_YAW_MAX)),
             pitch_min=int(axis_limits_data.get("pitch_min", 1200)),
             pitch_center=int(axis_limits_data.get("pitch_center", 1500)),
             pitch_max=int(axis_limits_data.get("pitch_max", 1800)),
@@ -418,6 +536,7 @@ def load_settings(path: Path | str | None) -> SavedSettings:
         vision=VisionProcessingConfig(
             active_speaker_enabled=bool(vision_data.get("active_speaker_enabled", True)),
             tracking_strategy=str(vision_data.get("tracking_strategy", "classic_audio_first")),
+            audio_sector_half_width_deg=float(vision_data.get('audio_sector_half_width_deg',15.)),
             asd_backend=str(vision_data.get("asd_backend", "rules")),
             speaker_lock_policy=str(vision_data.get("speaker_lock_policy", "turn_hold")),
             target_offset_x_norm=float(vision_data.get("target_offset_x_norm", 0.04)),
@@ -451,4 +570,20 @@ def save_settings(path: Path | str | None, settings: SavedSettings) -> None:
     settings_path = Path(path)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(settings)
-    settings_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    validate_servo_ids(settings.yaw_id, settings.pitch_id)
+    validate_axis_limits(payload['axis_limits'])
+    content = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
+    temporary = None
+    try:
+        # Same-volume replacement keeps the previous complete file if a
+        # write/flush fails, rather than leaving a truncated calibration.
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.tmp',
+                prefix=settings_path.name + '.', dir=settings_path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, settings_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)

@@ -1,0 +1,29 @@
+{
+  "scope": "Observed existing Windows demo environment; not a clean-install lockfile",
+  "packages": {
+    "fastapi": "0.143.1",
+    "uvicorn": "0.54.0",
+    "websockets": "17.2",
+    "pydantic": "2.14.1",
+    "pyserial": "3.5",
+    "sounddevice": "0.5.6",
+    "httpx": "0.28.1",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "opencv-python": "5.0.0.93",
+    "opencv-python-headless": "5.0.0.93",
+    "opencv-contrib-python": "5.0.0.93",
+    "mediapipe": "1.1.0",
+    "insightface": "2.1",
+    "onnxruntime": "1.31.0",
+    "onnxruntime-gpu": "1.22.0",
+    "torch": "2.6.0+cu124",
+    "torchvision": "0.21.0+cu124",
+    "torchaudio": "2.6.0+cu124",
+    "scikit-learn": "1.9.1",
+    "pandas": "3.0.6",
+    "tqdm": "4.70.1",
+    "gdown": "6.4.2",
+    "python_speech_features": "0.6"
+  }
+}

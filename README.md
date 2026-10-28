@@ -1,399 +1,108 @@
-# 定位机器人 Demo 简易操作手册
+# DeepSight-3D · 视听感知机器人
 
-这份文档面向现场演示和快速交接，说明哪些文件是必要的、如何安装依赖、如何启动 demo、dashboard 怎么操作，以及当前各模块的作用。当前版本的 Python 依赖已经整理到一个完整的 `requirements.txt`；增强模型文件仍按需放置。更长的算法说明见 `docs/ALGORITHM_CONTROL_LOGIC_CN.md`，硬件排查见 `docs/HARDWARE_DEBUG.md`。
+当前软件版本：**R43（2026-10-28）**。双目同帧采集、四路原始音频、声音辅助选人、双轴平滑跟踪，以及本地网页控制台。
 
-## 1. 必要文件
+本次更新保留仓库已有的头部、身体 Blender 模型及整个 `hardware/` 目录，仅更新软件和配套资料。
 
-### 必须保留
+## 当前能力
 
-| 路径 | 作用 |
-| --- | --- |
-| `run_server.py` | 启动 FastAPI/uvicorn 后端的入口。 |
-| `requirements.txt` | 完整 Python 依赖清单：Web 后端、串口、OpenCV、MediaPipe、SCRFD/ONNXRuntime、TalkNet/PyTorch 等。 |
-| `src/locator_demo/` | Demo 核心代码，包含音频、视觉、舵机、状态机和 Web 后端。 |
-| `src/locator_demo/web/static/` | Dashboard 前端页面、JS 和 CSS。 |
-| `locator_demo_settings.example.json` | 当前配置文件模板，方便迁移或重置。 |
+- 双目独立检测与跟踪，可靠关联后两眼共同计算跟随误差；遮挡或关联不明确时退回有效单眼。
+- R43：黄色准星标记各自的人脸锚点，绿色圆环标记各自的期望位置，灰色小十字仅表示图像中心。正常水平视差保留，不强迫两眼的人脸同时落在图像正中心。
+- 四路 48 kHz、16 bit PCM、WASAPI RAW 采集。当前定位使用左耳 CH2、右耳 CH3；身体左 CH1、右 CH4 的安装映射已确认，暂未接入控制。
+- 本地 Silero VAD + 多频带可靠性加权时差估计；核心声音按时间证据锁定，视觉优先，可靠声音辅助匹配人脸。
+- 声音结束后蓝色范围保持 1 秒，仅供显示；持有的核心转向目标与实时声音证据分开处理。
+- 独立 50 Hz 平滑运动规划，串口自动发现、位置反馈、故障停止和本地诊断日志。
 
-### 现场常用但不需要提交的文件
+## Windows 快速运行
 
-| 路径 | 作用 |
-| --- | --- |
-| `locator_demo_settings.json` | 本机真实配置，运行时自动保存。包含 COM 口、舵机 ID、相机、音频和策略参数。 |
-| `.venv/` 或 conda 环境 | Python 虚拟环境。每台电脑自己创建即可。 |
-| `.tmp/` | 测试或调试临时文件。 |
-
-### 可选增强文件
-
-| 路径 | 什么时候需要 |
-| --- | --- |
-| `models/face_landmarker.task` | 使用 MediaPipe Tasks 人脸关键点检测时需要。 |
-| `models/pose_landmarker_lite.task` | 使用 MediaPipe Pose 辅助重取景时需要。 |
-| `models/scrfd.onnx` | 使用 SCRFD 人脸检测器时需要。远距离人脸检测通常比基础方案稳。 |
-| `requirements-scrfd-gpu.txt` | 旧的 SCRFD 拆分依赖说明。完整安装已经合并到 `requirements.txt`，交付时可以不带。 |
-| `third_party/TalkNet-ASD/` | 使用 TalkNet active speaker detection 时需要。 |
-| `third_party/TalkNet-ASD/pretrain_TalkSet.model` 或 `pretrain_AVA.model` | TalkNet 预训练权重。没有权重会 fallback 到 rules。 |
-| `requirements-asd-gpu.txt` | 旧的 TalkNet 拆分依赖说明。完整安装已经合并到 `requirements.txt`，交付时可以不带。 |
-| `tests/` | 回归测试，不影响现场运行，但修改代码后建议保留。 |
-| `docs/` | 文档，不影响运行，但建议保留。 |
-
-
-## 2. 安装依赖与启动前检查
-
-在 VSCode PowerShell 中进入项目：
+克隆后，**进入包含 `run_server.py` 的仓库根目录**。GitHub 仓库根目录对应实验室旧工作区的 `positioning_robots/`，不需要再进入同名子目录。
 
 ```powershell
+git clone https://github.com/CatLiZi/DeepSight-3D.git
+Set-Location .\DeepSight-3D
+
+# 使用已有 demo 环境；新电脑可先 conda create -n demo python=3.11，再安装依赖
 conda activate demo
-Set-Location E:\demo\positioning_robots
-```
-
-安装完整 Python 依赖：
-
-```powershell
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-```
-
-如果要使用 NVIDIA GPU 跑 TalkNet，建议先安装与你电脑 CUDA/驱动匹配的 PyTorch，再安装完整依赖。例如：
-
-```powershell
-python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-python -m pip install -r requirements.txt
-```
-
-如果 `onnxruntime-gpu` 在目标电脑安装失败，可以把 `requirements.txt` 里的 `onnxruntime-gpu` 临时改成 `onnxruntime`，SCRFD 会走 CPU 或其它可用 provider；TalkNet 不可用时 dashboard 会显示 fallback 到 `rules`。
-
-系统依赖还需要单独安装 `ffmpeg`，并保证 PowerShell 可以直接运行 `ffmpeg`。
-
-检查 ffmpeg：
-
-```powershell
 ffmpeg -version
-ffmpeg -hide_banner -list_devices true -f dshow -i dummy
+
+# 仅首次配置；此文件是当前这台小熊的实机参数快照
+Copy-Item .\configs\panda-final-r43.json .\locator_demo_settings.json
+
+$env:LOCATOR_DEMO_PORT = "8010"
+$env:LOCATOR_DEMO_SIM = "0"
+python -X utf8 .\run_server.py
 ```
 
-检查串口：
+打开 <http://127.0.0.1:8010/>。看到 `Uvicorn running` 后保持终端打开；停止服务用该终端的 Ctrl+C。启动服务不会自行开启自动转头，需要在页面明确点击“开始运行”。新电脑接入硬件后先使用页面的设备刷新/串口检查，再核对通道、方向和行程。不要用旧示例覆盖已经确认好的实机配置。
+
+本机已有环境也可直接用 `& "C:\Users\SLAI\miniconda3\envs\demo\python.exe" -X utf8 .\run_server.py`。该绝对路径仅适用于实验室电脑，其他电脑使用自己的 Python 路径。
+
+FFmpeg 为单独安装的系统依赖，需加入 PATH。默认检测使用仓库已有 `models/scrfd.onnx`；ONNX Runtime GPU 不可用时按环境文档选择 CPU 版本。`docs/environment-observed-r43.json` 记录本次运行回归的环境版本，属于实际环境记录，不是已验证的新电脑一键安装锁文件。
+
+### 仿真与汇报页
 
 ```powershell
-Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Description
+# 仿真模式：启动前设置；不作为实体硬件验收
+$env:LOCATOR_DEMO_SIM = "1"
+python -X utf8 .\run_server.py
+
+# 另一个终端启动不含现场人脸/录音的汇报摘要
+python -m http.server 8769 --bind 127.0.0.1 --directory .\docs\report
 ```
 
-如果要确认 Python 依赖：
+汇报摘要也可直接打开 [docs/report/index.html](docs/report/index.html) 离线阅读。实验室完整历史汇报含现场画面和录音证据，保留在本机，未复制到公共仓库。
+
+## 最终装配参数
+
+| 部件 | 当前配置 | 说明 |
+|---|---|---|
+| 摄像头 | SC233HGS；3840×1080 双目同屏；MJPEG；请求 60 fps | 每眼 1920×1080；最近实采约 49.6 fps，未宣称稳定达到 60 fps |
+| 对焦 | 手动调焦 MF | 软件不能产生镜头没有提供的电动对焦能力 |
+| 麦克风 | 4 通道 / 48 kHz / 16 bit / WASAPI RAW | 左耳 CH2、右耳 CH3；左右以小熊自身为准 |
+| 两耳间距 | 0.1355 m；延迟零点 0 | 估计工作间距；身体两路尚未参与控制 |
+| Yaw ID 0 | 最小 1404 / 中位 1952 / 最大 2500 | 左右各 548，总 1096 刻度 |
+| Pitch ID 2 | 最小 1255 / 中位 1555 / 最大 1855 | 上下各 300，总 600 刻度 |
+| 平滑控制 | 50 Hz；最大速度 180、加速度 600、jerk 3000 | 沿用已调试参数；刻度不是已标定的真实角度 |
+
+`configs/panda-final-r43.json` 保存最终装配参数；`locator_demo_settings.example.json` 为历史通用示例，保留用于兼容性测试，不是当前小熊的推荐配置。
+
+`calibration/stereo_camera-alignment.json` 是当前这套镜头安装的对齐预览参数，**正式米制距离仍关闭**。它不能保证另一台装配或移动镜头后仍然有效。标定板在 [output/calibration/stereo-charuco-A4-20mm.pdf](output/calibration/stereo-charuco-A4-20mm.pdf)，100%实际大小打印并测量格长。
+
+## 目录
+
+| 目录 / 文件 | 内容 |
+|---|---|
+| `src/locator_demo/` | 音频定位、视觉关联、目标选择、轨迹规划、串口与 Web 后端 |
+| `src/locator_demo/web/static/` | 当前控制台，以及 `legacy-r30/` 原界面备份 |
+| `tests/`、`tools/` | 离线回归、前端检查、采集及诊断工具 |
+| `configs/`、`calibration/` | 当前实机配置快照、双目对齐与麦克风映射 |
+| `models/` | 已有视觉权重及新增官方 Silero VAD 权重、来源和许可证 |
+| `third_party/TalkNet-ASD` | 原仓库已锁定的可选上游子模块；默认 `rules` 路径不需要它 |
+| `hardware/` | 用户从另一台电脑提交的头部和身体 CAD/Blender 模型，原样保留 |
+| `hardware_examples/` | USB 相机、麦克风、串口调用示例 |
+| `ui_backups/` | 原前端备份和恢复说明 |
+| `docs/` | 使用说明、当前摘要、历史记录、发布验证结果 |
+
+如需可选 TalkNet，运行 `git submodule update --init --recursive`，再按照上游说明自行准备权重；默认演示不依赖 TalkNet 权重。保留上游许可证和使用条件，不把未启用模块算作已验收能力。
+
+## 验证
+
+回归采用模拟硬件，屏蔽真实舵机自动探测，不开启真实相机或录音。完整前端检查需要 Node.js。
 
 ```powershell
-python -c "import fastapi, uvicorn, serial, cv2, numpy, mediapipe; print('core deps ok')"
-python -c "import torch, onnxruntime; print('cuda=', torch.cuda.is_available(), 'providers=', onnxruntime.get_available_providers())"
+python -X utf8 .\tools\validate_regression_repair.py --output .\.tmp\regression
+python -X utf8 .\tools\validate_publication.py --output .\.tmp\publication
 ```
 
-## 3. 启动 Demo
+本地 R43 上一轮通过 690 项 Python 回归、75 项前端检查。此次上传目录将重新验证，具体结果见 [docs/publication-validation-r43.json](docs/publication-validation-r43.json)。已有 8 组真实保存双目帧完成离线重放，其中 6 组在时间确认后形成双眼共同跟随；这不等同于新的真人动态跟随或实体机械验收。
 
-真实硬件模式：
+仍待验证：远距离及多说话人定位、舵机偶发无反馈的硬件根因、最终机械端点、四麦随头部运动的几何关系、正式测距。不能从两耳音量或人脸大小推出可靠的米数。
 
-```powershell
-conda activate demo
-Set-Location C:\Users\SLAI\v1zhang\positioning_robots
-Remove-Item Env:\LOCATOR_DEMO_SIM -ErrorAction SilentlyContinue
-$env:LOCATOR_DEMO_PORT="8010"
-python run_server.py
-```
+## 发布范围
 
-浏览器打开：
+源码来自本机 R43 当前版本。仅作便携化整理：打印标定板同时支持仓库内路径；离线测试改为使用仓库内的历史问题 ID 和实机配置快照，不依赖实验室外层目录。算法、控制参数和生产数据处理逻辑未为此次上传调整。
 
-```text
-http://127.0.0.1:8010/
-```
+不上传：原始录音、现场人脸图像/视频、串口运行日志、临时文件、历史重复源码快照、浏览器/会话迁移数据、凭据和虚拟环境。它们仍保留在原电脑。
 
-模拟模式，不接机器人时使用：
-
-```powershell
-conda activate demo
-Set-Location E:\demo\positioning_robots
-$env:LOCATOR_DEMO_SIM="1"
-python run_server.py
-```
-
-停止 server：在运行 server 的 PowerShell 窗口按 `Ctrl+C`。
-
-如果改过前端 JS/HTML，刷新 dashboard 时按 `Ctrl+F5`。
-
-## 4. Dashboard 推荐操作顺序
-
-1. 先不要急着开自动追踪。先关闭或保持关闭 `Audio`、`Visual tracking`，只保留必要的 `Camera` 预览。
-2. 设置串口和舵机 ID。常见配置是 `Yaw ID = 0`，`Pitch ID = 2`，但以现场扫描结果为准。
-3. 用手动按钮测试 yaw/pitch。确认左、右、上、下方向正确；如果反了，在方向配置里调整 yaw/pitch sign。
-4. 设置舵机范围。默认安全范围是 `1200..1800`，如果某个舵机在某段抖动，就把范围避开。
-5. 设置相机。普通 USB Camera 推荐 `1280x800` 或 `1280x720`，不裁切；双目宽画面才考虑左半裁切。
-6. 设置人脸检测器。近距离可用 `mediapipe`；远距离人脸不稳时用 `scrfd`，并确认 `models/scrfd.onnx` 存在。
-7. 设置音频。确认左右方向是否正确；如果左右反了，打开 `swap channels`。
-8. 选择策略，再点击 `Start` 开始自动逻辑。
-
-## 5. 现场策略怎么选
-
-### 嘈杂现场最稳配置
-
-用于 open day、旁边很多人说话、背景噪声不可控的场景：
-
-```text
-Strategy: crowded visual first
-ASD: talknet，如果 TalkNet 不稳定就用 rules
-Lock policy: until_lost
-Silent visual search: OFF
-Audio interrupt: OFF
-Near face: 0.15 - 0.20
-Keep face: Near face - 0.03 左右，例如 0.18 / 0.14
-Control profile: stable
-```
-
-含义：画面里有近距离候选人时，不被画面外噪声带走；只有画面里的说话人被确认后才红框锁定。
-
-### 安静测试或需要找画面外说话人
-
-```text
-Strategy: crowded visual first
-Silent visual search: ON
-Silent hold s: 0.8 - 1.2
-Audio interrupt: OFF
-```
-
-含义：画面里有人但没说话时，先短暂保持；如果外部声源稳定，超过 hold 时间后允许音频 yaw 搜索，把人带入视野。
-
-### 只测声源定位
-
-```text
-Camera: 可关
-Visual tracking: OFF
-Audio: ON
-Strategy: classic audio first
-```
-
-含义：主要看左右声源定位和 yaw 粗转，不测试 active speaker 视觉确认。
-
-## 6. 当前模块功能
-
-### `run_server.py`
-
-启动入口。它把 `src` 加入 Python 路径，然后运行 `locator_demo.web.app:create_app()`。环境变量：
-
-- `LOCATOR_DEMO_PORT`：端口，默认 `8010`。
-- `LOCATOR_DEMO_SIM=1`：模拟模式，不连接真实舵机/设备。
-
-### `src/locator_demo/web/app.py`
-
-Web 后端和总控运行时。负责：
-
-- 提供 dashboard 页面和 REST/WebSocket 状态。
-- 保存硬件、相机、音频、策略配置。
-- 调用音频、视觉、状态机和舵机控制。
-- 实现 `classic_audio_first` 与 `crowded_visual_first` 两套策略。
-- 实现 speaker lock、silent visual search、audio search、visual reframe 等控制逻辑。
-
-### `src/locator_demo/web/static/`
-
-Dashboard 前端：
-
-- `index.html`：页面结构。
-- `app.js`：读取状态、保存配置、按钮操作、绘制框和状态。
-- `styles.css`：页面样式。
-
-前端框含义：
-
-- 普通/候选框：检测到人脸或候选目标。
-- 绿色语义：active speaker candidate。
-- 红框语义：当前锁定的 specific speaker，不是身份识别，只表示当前跟踪目标。
-
-### `src/locator_demo/audio.py`
-
-声源定位算法核心：
-
-- GCC-PHAT / SRP-PHAT 前方半平面方向估计。
-- 输出 `tdoa_s`、`azimuth_deg`、`direction`、`speech_confidence`、`doa_confidence`。
-- 音频平滑、左右方向分类、motor guard 抑制。
-- 当前双麦主要估计水平 yaw，不用音频估计 pitch。
-
-### `src/locator_demo/audio_device.py`
-
-音频采集：
-
-- 通过 ffmpeg DirectShow 读取 Windows 麦克风。
-- 自动优先选择常见设备名，如 `YDM2MIC`、`Realtek`。
-- 维护最近音频缓存，供 TalkNet 或 ASD 后端使用。
-
-### `src/locator_demo/camera.py`
-
-相机和视觉前端：
-
-- 通过 ffmpeg DirectShow 读取 USB camera。
-- 支持输出尺寸、FPS、左半裁切。
-- 支持 MediaPipe、SCRFD、Haar fallback。
-- 输出多个人脸目标、bbox、tracking center、嘴部运动、人体/pose 辅助目标。
-- 对人脸目标做短时稳定和 ID 跟踪，避免多人时框闪烁或重复红框。
-
-### `src/locator_demo/vision.py`
-
-视觉目标数据结构和几何工具：
-
-- `FaceTarget`、`BodyTarget`。
-- 选择主目标 / active speaker 候选。
-- `normalized_center_error()` 计算目标相对画面瞄准点的误差，用于视觉控制 yaw/pitch。
-
-### `src/locator_demo/asd.py`
-
-Active Speaker Detection 后端选择：
-
-- `rules`：轻量规则，用嘴部运动、人脸正对、音频区域一致性给分。
-- `talknet`：调用 TalkNet 插件。可用时使用 GPU；不可用会显示 fallback 信息。
-
-### `src/locator_demo/talknet_adapter.py`
-
-TalkNet 官方模型适配层：
-
-- 默认查找 `third_party/TalkNet-ASD/`。
-- 默认查找 `pretrain_TalkSet.model` 或 `pretrain_AVA.model`。
-- 需要 CUDA、PyTorch、OpenCV、python_speech_features 等依赖。
-
-### `src/locator_demo/orchestrator.py`
-
-经典状态机：
-
-```text
-LISTENING -> AUDIO_CANDIDATE -> SEEK_VISUAL -> VISUAL_CONFIRM -> TRACK_SPEAKER -> HOLD/COOLDOWN
-```
-
-现在 crowded 策略的主要逻辑在 `web/app.py` 里，但仍复用这里的 audio_ready、target_confirmed 等判断。
-
-### `src/locator_demo/head.py`
-
-舵机目标计算：
-
-- 手动 jog。
-- 音频 azimuth 到 yaw 步进。
-- 视觉中心误差到 yaw/pitch 步进。
-- deadband、最大步长、最小步长和轴范围 clamp。
-
-### `src/locator_demo/servo_bus.py`
-
-真实舵机通信：
-
-- 扫描串口和舵机 ID。
-- Zhongling/ZP 协议读写位置。
-- 双轴头部硬件封装。
-
-### `src/locator_demo/settings.py`
-
-配置读写：
-
-- 默认配置、字段范围校验、保存到 `locator_demo_settings.json`。
-- 重要字段包括 camera、audio、axis_limits、vision strategy、speaker lock、silent visual search。
-
-### `src/locator_demo/devices.py`
-
-设备发现：
-
-- 调用 ffmpeg 列 DirectShow audio/video 设备。
-- 自动选择合适的麦克风或相机。
-
-### `tests/`
-
-单元测试和回归测试：
-
-- 音频算法、视觉目标、舵机协议、Web API、策略状态机。
-- 修改控制逻辑后建议运行。
-
-## 7. 常用参数解释
-
-| 参数 | 位置 | 含义 |
-| --- | --- | --- |
-| `tracking_strategy` | Vision processing | `classic_audio_first` 或 `crowded_visual_first`。 |
-| `asd_backend` | Vision processing | `rules` 或 `talknet`。 |
-| `speaker_lock_policy` | Vision processing | `turn_hold`、`until_lost`、`interruptible`。 |
-| `audio_search_after_silent_visual` | Dashboard: Silent visual search | 静默近脸是否允许释放给画面外音频搜索。 |
-| `silent_visual_hold_s` | Dashboard: Silent hold s | 静默近脸至少保持多久后才允许音频搜索。 |
-| `audio_interrupt_enabled` | Dashboard: Audio interrupt | 红框锁定后，是否允许外部声音打断。现场通常关。 |
-| `min_face_height_ratio` | Dashboard: Near face | bbox 高度 / 处理帧高度。小于该值视为远处人，不参与锁定。 |
-| `keep_face_height_ratio` | Dashboard: Keep face | 已有候选/锁定目标的保留阈值，通常比 Near face 小。 |
-| `target_offset_x_norm` / `target_offset_y_norm` | Dashboard: Target X/Y | 视觉瞄准点偏移，补偿左眼相机不在头部中心。 |
-| `visual_yaw_mode` | Dashboard: Visual yaw | `off`、`small`、`full`。现场一般用 `small`。 |
-| `control_profile` | Control | `stable` 更稳，`fast` 更灵敏。 |
-| `motor_guard_ms` | Control | 舵机转动后音频抑制时间，防止电机声二次触发。 |
-
-## 8. 常见问题
-
-### 听到声音只动一下，还没到位就开始找画面
-
-当前代码已改为 `AUDIO_SEARCH` 优先完成音频 yaw，再让 visual reframe 接手。请重启 server，确保用的是最新代码。
-
-### 画面里有人但没说话，画面外有人说话，机器人不动
-
-这是 `crowded visual first` 且 `Silent visual search = OFF` 的保守现场策略。打开 `Silent visual search` 后，静默候选超过 `Silent hold s` 会允许外部音频搜索。
-
-### 远处人也被框到，容易误触发
-
-提高 `Near face`，例如 `0.18`；`Keep face` 设成 `0.14` 左右。注意比例基于后端处理帧尺寸，不是相机原始尺寸。
-
-### 前端没有新控件
-
-按 `Ctrl+F5` 硬刷新。如果还没有，停止 server 后重新运行 `python run_server.py`。
-
-### TalkNet 显示 fallback
-
-检查：
-
-- `third_party/TalkNet-ASD/talkNet.py` 是否存在。
-- `pretrain_TalkSet.model` 或 `pretrain_AVA.model` 是否存在。
-- 当前环境是否能 `import torch` 且 `torch.cuda.is_available()` 为 `True`。
-- `requirements.txt` 里的 TalkNet 相关依赖是否装齐。
-
-### SCRFD 不生效
-
-检查：
-
-- `models/scrfd.onnx` 是否存在，或在 dashboard 填了正确模型路径。
-- 安装了 `requirements.txt` 里的 InsightFace/ONNXRuntime 相关依赖。
-- Dashboard 里 `Face detector` 选择了 `scrfd`。
-
-## 9. 交付前清理建议
-
-推荐交付的最小可运行文件：
-
-- `run_server.py`
-- `requirements.txt`
-- `README_CN.md`
-- `locator_demo_settings.example.json`
-- `src/locator_demo/`
-- `models/face_landmarker.task` 和 `models/pose_landmarker_lite.task`，如果现场使用 MediaPipe Tasks / Pose
-- `models/scrfd.onnx`，如果现场使用 SCRFD
-- `third_party/TalkNet-ASD/` 和 `pretrain_*.model`，如果现场使用 TalkNet
-
-推荐保留但不是运行必需：
-
-- `docs/`：算法、硬件、快速手册等说明。
-- `tests/`：修改代码后做回归测试。
-- `requirements-asd-gpu.txt`、`requirements-scrfd-gpu.txt`：旧的拆分安装说明，已经合并后可以不交付。
-
-可以删除或不交付：
-
-- `.venv/`、conda 环境目录：每台电脑重新创建。
-- `.git/`：如果不是以 Git 仓库形式交付，可以删除。
-- `locator_demo_settings.json`：本机真实配置，包含 COM 口、设备名、舵机 ID，不建议交给别人覆盖使用。
-- `.tmp/`、`__pycache__/`、`.pytest_cache/`、临时图片、旧抓帧、日志。
-
-不要误删：
-
-- 使用 SCRFD 时不要删 `models/scrfd.onnx`。
-- 使用 MediaPipe Tasks / Pose 时不要删 `models/face_landmarker.task` 和 `models/pose_landmarker_lite.task`。
-- 使用 TalkNet 时不要删 `third_party/TalkNet-ASD/talkNet.py` 和预训练权重。
-- 不确定接收方是否要继续开发时，保留 `tests/` 和 `docs/`。
-
-## 10. 修改代码后的验证
-
-```powershell
-conda activate demo
-Set-Location E:\demo\positioning_robots
-$env:PYTHONPATH="$PWD\src"
-python -m unittest discover -s tests
-```
-
-如果本机有 Node.js，也可以检查前端语法：
-
-```powershell
-node --check src\locator_demo\web\static\app.js
-```
+历史文档见 [docs/README_HISTORY_CN.md](docs/README_HISTORY_CN.md)，其中旧参数、旧版本“待重启”状态及指向本机 `hardware_inventory` 的链接只描述当时情况。当前使用以本页、R43 源码和最终装配配置为准。

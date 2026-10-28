@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/snakers4/silero-vad",
+  "commit": "066409f3d9db45a30d21dfcbf9147826ffdd7052",
+  "source_url": "https://raw.githubusercontent.com/snakers4/silero-vad/066409f3d9db45a30d21dfcbf9147826ffdd7052/src/silero_vad/data/silero_vad.onnx",
+  "sha256": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
+  "bytes": 2327524,
+  "license": "MIT",
+  "runtime_downloads": false,
+  "trained_here": false
+}

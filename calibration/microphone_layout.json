@@ -1,0 +1,66 @@
+{
+  "status": "ear_and_body_channel_mapping_confirmed_geometry_incomplete",
+  "source": "user_measurements_and_assembly_photos_20261028",
+  "coordinate_reference": "bear_own_left_and_right",
+  "raw_capture": {
+    "channels": 4,
+    "sample_rate_hz": 48000,
+    "sample_bits": 16,
+    "wasapi_raw": true
+  },
+  "ears": {
+    "left_channel": 2,
+    "right_channel": 3,
+    "mapping_confirmed": true,
+    "spacing_m": 0.1355
+  },
+  "body": {
+    "channel_candidates": [
+      1,
+      4
+    ],
+    "left_channel": 1,
+    "right_channel": 4,
+    "mapping_confirmed": true,
+    "spacing_m": 0.0755,
+    "evidence": "body-channel-confirmation.json"
+  },
+  "cross_head_body": {
+    "distance_range_m": [
+      0.177,
+      0.178
+    ],
+    "nominal_midpoint_m": 0.1775,
+    "pair_interpretation": "same_side_as_indicated_in_photo; not a full measured 3D coordinate set",
+    "reference_pose": {
+      "yaw": 1952,
+      "pitch": 1555
+    },
+    "head_body_geometry_changes_with_pan_tilt": true,
+    "reference_software_limits": {
+      "yaw_min": 800,
+      "yaw_center": 1952,
+      "yaw_max": 2200,
+      "pitch_min": 1200,
+      "pitch_center": 1555,
+      "pitch_max": 1800
+    }
+  },
+  "active_localization": "ear_pair",
+  "body_channels_used_for_steering": false,
+  "rigid_four_microphone_geometry_calibrated": false,
+  "needs_before_four_mic_fusion": [
+    "measure microphone 3D positions and head rotation pivot, or validate pose-dependent geometry",
+    "validate delay signs and noise for both pairs"
+  ],
+  "photos": [
+    "assembled-bear.jpg",
+    "microphone-measurements.png"
+  ],
+  "channel_roles": {
+    "1": "body_left",
+    "2": "head_left_ear",
+    "3": "head_right_ear",
+    "4": "body_right"
+  }
+}

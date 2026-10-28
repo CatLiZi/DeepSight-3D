@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from math import asin, degrees, sin, radians, sqrt
 from collections import deque
@@ -30,6 +30,11 @@ class AudioEstimate:
     peak_ratio: float = 0.0
     noise_state: str = "unknown"
     motor_suppressed: bool = False
+    observed_monotonic: float = 0.0
+    sample_sequence: int = 0
+    azimuth_std_deg: float = 12.0
+    temporal_stability: float = 0.0
+    speech_backend: str = 'spectral'
 
 
 @dataclass(frozen=True)
@@ -53,7 +58,7 @@ _MIRRORED_DIRECTIONS = {
 def apply_audio_channel_mapping(estimate: AudioEstimate, *, swap_channels: bool) -> AudioEstimate:
     if not swap_channels:
         return estimate
-    return AudioEstimate(
+    return replace(estimate,
         direction=_MIRRORED_DIRECTIONS.get(estimate.direction, estimate.direction),
         confidence=estimate.confidence,
         tdoa_s=-estimate.tdoa_s,
@@ -70,7 +75,7 @@ def apply_audio_channel_mapping(estimate: AudioEstimate, *, swap_channels: bool)
 def with_motor_suppression(estimate: AudioEstimate, *, suppressed: bool) -> AudioEstimate:
     if not suppressed:
         return estimate
-    return AudioEstimate(
+    return replace(estimate,
         direction=AudioDirection.UNKNOWN,
         confidence=min(estimate.confidence, 0.15),
         tdoa_s=estimate.tdoa_s,

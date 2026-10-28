@@ -193,7 +193,7 @@ class WebAppTests(unittest.TestCase):
         client = TestClient(app)
         client.post(
             "/api/config/vision-processing",
-            json={"target_offset_x_norm": 0.0, "target_offset_y_norm": 0.0, "visual_yaw_mode": "small"},
+            json={"target_offset_x_norm": 0.0, "target_offset_y_norm": 0.0, "visual_yaw_mode": "small", "visual_yaw_max_delta": 25},
         )
         client.post("/api/demo/tick")
 
@@ -840,6 +840,9 @@ class WebAppTests(unittest.TestCase):
         runtime.motion_interval_s = 0.0
         client = TestClient(app)
 
+        # Exercise an explicitly unconfirmed mouth signal; the current
+        # low-frame-rate default is 0.06, below this fixture's 0.07.
+        client.post('/api/config/vision-processing', json={'mouth_evidence_threshold': 0.12})
         client.post("/api/demo/start")
         first = client.post("/api/demo/tick").json()
         runtime.motor_guard_until_s = 0.0
@@ -866,6 +869,9 @@ class WebAppTests(unittest.TestCase):
         runtime.motion_interval_s = 0.0
         client = TestClient(app)
 
+        # Exercise an explicitly unconfirmed mouth signal; the current
+        # low-frame-rate default is 0.06, below this fixture's 0.07.
+        client.post('/api/config/vision-processing', json={'mouth_evidence_threshold': 0.12})
         client.post("/api/demo/start")
         client.post("/api/demo/tick")
         runtime.motor_guard_until_s = 0.0
@@ -970,6 +976,7 @@ class WebAppTests(unittest.TestCase):
             json={
                 "active_speaker_enabled": True,
                 "visual_yaw_mode": "small",
+                "visual_yaw_max_delta": 25,
                 "visual_pitch_enabled": False,
                 "target_offset_x_norm": 0.0,
                 "target_offset_y_norm": 0.0,
@@ -1166,7 +1173,8 @@ class WebAppTests(unittest.TestCase):
         state = client.post("/api/demo/tick").json()
 
         self.assertLess(state["pose"]["yaw"], 1300)
-        self.assertGreaterEqual(state["pose"]["yaw"], 1200)
+        self.assertGreaterEqual(state["pose"]["yaw"], max(runtime.axis_limits.yaw_min,
+            1300-runtime._profile_params()["audio_seek_window"]))
         self.assertEqual(state["pose"]["pitch"], 1500)
 
     def test_vad_disabled_reclassifies_low_speech_audio(self):
@@ -1381,6 +1389,9 @@ class WebAppTests(unittest.TestCase):
         first_pitch = first_search["pose"]["pitch"]
 
         runtime.motor_guard_until_s = 0.0
+        # A real search needs a new, converging bearing. Replaying an
+        # unchanged acoustic direction must not drive an endless sweep.
+        runtime.audio.azimuth_deg = 25.0
         runtime.vision.target = None
         runtime.vision.targets = []
         second_search = client.post("/api/demo/tick").json()

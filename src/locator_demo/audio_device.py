@@ -5,13 +5,15 @@ import struct
 import subprocess
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from .audio import AudioDirection, AudioDirectionSmoother, AudioEstimate, classify_audio_direction, rms, srp_phat_front_hemisphere
-from .audio_denoise import DeepFilterNetStereoDenoiser, save_pcm16_stereo_to_wav
+from .audio_denoise import DeepFilterNetStereoDenoiser
+from .capture import PcmRecorder
 from .devices import choose_dshow_device
 
 
@@ -77,8 +79,8 @@ class FfmpegAudioLocalizer:
         self._human_voice_streak = 0
         self._max_physical_tdoa_s = 0.00026
         self._recording_enabled = bool(recording_enabled)
-        self._recording_chunks: list[bytes] = []
-        self._recording_denoised_chunks: list[bytes] = []
+        self._recorders: dict[bool, PcmRecorder] = {}
+        self._last_recordings: list[dict] = []
         self._recording_output_path: Path | None = None
         self._recording_denoised_output_path: Path | None = None
         self._recording_session_stamp: str | None = None
@@ -111,6 +113,9 @@ class FfmpegAudioLocalizer:
             return
         device_name = self._resolve_device_name()
         if device_name is None:
+            return
+        if 'YDPI4MIC' in device_name.upper():
+            self._latest_error = 'YDPI4MIC requires the four-channel WASAPI RAW backend; legacy downmix refused'
             return
         command = [
             self.ffmpeg,
@@ -189,29 +194,9 @@ class FfmpegAudioLocalizer:
         speech_confidence, noise_state = self._speech_confidence(left, right, energy)
         if speech_confidence < 0.20:
             self._noise_floor = 0.98 * self._noise_floor + 0.02 * max(energy, 0.001)
-        level_sum = left_level + right_level
-        if energy >= 0.08 and level_sum > 0:
-            balance = (left_level - right_level) / level_sum
-            if speech_confidence >= 0.25 and abs(balance) >= 0.30:
-                tdoa = 0.00035 if balance > 0 else -0.00035
-                if abs(tdoa) > self._max_physical_tdoa_s:
-                    return classify_audio_direction(
-                        0.0,
-                        0.0,
-                        min_energy=0.06,
-                        speech_confidence=0.0,
-                        doa_confidence=0.0,
-                        noise_state="invalid_delay",
-                    )
-                return classify_audio_direction(
-                    tdoa,
-                    min(1.0, energy),
-                    min_energy=0.08,
-                    speech_confidence=speech_confidence,
-                    doa_confidence=0.65,
-                    peak_ratio=1.0 + abs(balance) * 3.0,
-                    noise_state=noise_state,
-                )
+        # Gain differences do not establish arrival time. A fixed delay
+        # invented from level balance contradicted the physical delay gate.
+        # Use measured phase/correlation even when the levels differ greatly.
         srp = srp_phat_front_hemisphere(left, right, sample_rate=self.sample_rate)
         if abs(srp.tdoa_s) > self._max_physical_tdoa_s:
             return classify_audio_direction(
@@ -289,12 +274,22 @@ class FfmpegAudioLocalizer:
             return
         sample_count = max(1, int(self.sample_rate * self.frame_ms / 1000))
         frame_bytes = sample_count * 2 * 2
-        while process.poll() is None:
-            raw = process.stdout.read(frame_bytes)
-            if len(raw) < frame_bytes:
+        pending = bytearray()
+        while self._process is process:
+            chunk = process.stdout.read(frame_bytes - len(pending))
+            if not chunk:
+                # Preserve complete interleaved stereo samples in an EOF tail;
+                # a short tail is recording data, not a full inference window.
+                aligned = len(pending) - len(pending) % 4
+                if aligned:
+                    self._append_recording_chunk(bytes(pending[:aligned]), self._latest_estimate)
                 self._consume_stderr_if_exited()
-                time.sleep(0.02)
+                break
+            pending.extend(chunk)
+            if len(pending) < frame_bytes:
                 continue
+            raw = bytes(pending)
+            pending.clear()
             raw_estimate = self._estimate_from_raw(raw)
             if self._denoise_enabled:
                 self._ensure_denoiser()
@@ -314,7 +309,8 @@ class FfmpegAudioLocalizer:
             estimate = self._smoother.update(downstream_estimate)
             if self._denoise_output_dir is not None and self._recording_enabled:
                 self._append_recording_chunk(raw, estimate)
-                self._append_recording_chunk(raw_denoised, estimate, denoised=True)
+                if self._denoise_enabled:
+                    self._append_recording_chunk(raw_denoised, estimate, denoised=True)
             with self._lock:
                 self._recent_raw.append((time.time(), raw_denoised))
                 self._latest_estimate = estimate
@@ -333,57 +329,56 @@ class FfmpegAudioLocalizer:
             self._latest_error = f"denoise init error: {exc}"
 
     def set_recording_enabled(self, enabled: bool) -> None:
-        self._recording_enabled = bool(enabled)
+        with self._lock:
+            self._recording_enabled = bool(enabled)
+            recorders = [] if enabled else list(self._recorders.values())
+            if not enabled:
+                self._recorders.clear()
+                self._recording_session_stamp = None
+        for recorder in recorders:
+            recorder.close()
+            self._last_recordings.append(recorder.metrics())
 
     def _append_recording_chunk(self, chunk: bytes, estimate: AudioEstimate, *, denoised: bool = False) -> None:
-        if self._denoise_output_dir is None or not self._recording_enabled:
-            return
-        if self._recording_session_stamp is None:
-            self._recording_session_stamp = time.strftime("%Y%m%d_%H%M%S")
-        if denoised:
-            if self._recording_denoised_output_path is None:
-                self._denoise_output_dir.mkdir(parents=True, exist_ok=True)
-                self._recording_denoised_output_path = (
-                    self._denoise_output_dir / f"speech_capture_{self._recording_session_stamp}.wav"
-                )
-            self._recording_denoised_chunks.append(chunk)
-            return
-        if self._recording_output_path is None:
-            self._denoise_output_dir.mkdir(parents=True, exist_ok=True)
-            self._recording_output_path = (
-                self._denoise_output_dir / f"speech_capture_raw_{self._recording_session_stamp}.wav"
-            )
-        self._recording_chunks.append(chunk)
+        with self._lock:
+            if self._denoise_output_dir is None or not self._recording_enabled or not chunk:
+                return
+            if denoised and not self._denoise_enabled:
+                return
+            if self._recording_session_stamp is None:
+                self._recording_session_stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex
+            recorder = self._recorders.get(denoised)
+            if recorder is None:
+                prefix = 'speech_capture_' if denoised else 'speech_capture_raw_'
+                path = self._denoise_output_dir / (prefix + self._recording_session_stamp + '.wav')
+                recorder = PcmRecorder(path, channels=2, sample_rate=self.sample_rate)
+                self._recorders[denoised] = recorder
+            # A bounded writer queue replaces an unbounded whole-session list.
+            recorder.add(chunk)
 
     def stop(self) -> None:
-        if self._process is not None:
-            self._process.terminate()
+        process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
             try:
-                self._process.wait(timeout=1.0)
+                process.wait(timeout=1.0)
             except subprocess.TimeoutExpired:
-                self._process.kill()
+                process.kill()
+                process.wait(timeout=1.0)
+        if self._reader is not None and self._reader is not threading.current_thread():
+            self._reader.join(timeout=2.0)
+            if self._reader.is_alive():
+                self._latest_error = 'audio reader did not stop; recording not finalized'
+                raise RuntimeError(self._latest_error)
         self._process = None
-        if self._recording_output_path is not None and self._recording_chunks:
-            try:
-                save_pcm16_stereo_to_wav(self._recording_output_path, b"".join(self._recording_chunks), self.sample_rate)
-                print(f"[denoise] wrote raw audio to {self._recording_output_path}")
-            except Exception as exc:
-                print(f"[denoise] write failed: {exc}")
-            self._recording_chunks.clear()
-            self._recording_output_path = None
-        if self._recording_denoised_output_path is not None and self._recording_denoised_chunks:
-            try:
-                save_pcm16_stereo_to_wav(
-                    self._recording_denoised_output_path,
-                    b"".join(self._recording_denoised_chunks),
-                    self.sample_rate,
-                )
-                print(f"[denoise] wrote denoised audio to {self._recording_denoised_output_path}")
-            except Exception as exc:
-                print(f"[denoise] denoised write failed: {exc}")
-            self._recording_denoised_chunks.clear()
-            self._recording_denoised_output_path = None
-        self._recording_session_stamp = None
+        self._reader = None
+        if process is not None:
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+        was_enabled = self._recording_enabled
+        self.set_recording_enabled(False)
+        self._recording_enabled = was_enabled
 
     def status(self) -> AudioDeviceStatus:
         running = self._process is not None and self._process.poll() is None

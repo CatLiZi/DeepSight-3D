@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "selected_on": "2026-10-21",
+  "selection_source": "User-confirmed hardware acquisition specifications",
+  "purpose": "Selected native acquisition profile, integrated in the application in stage 1; geometry-dependent perception remains a later stage.",
+  "camera": {
+    "model": "SC233HGS stereo USB camera",
+    "device_name": "USB Video Device",
+    "usb_vid": "1BCF",
+    "usb_pid": "0B15",
+    "color": true,
+    "vendor_fov_degrees": 112,
+    "vendor_focus": "manual",
+    "layout": "side_by_side",
+    "frame_width": 3840,
+    "frame_height": 1080,
+    "per_eye_width": 1920,
+    "per_eye_height": 1080,
+    "format": "MJPEG",
+    "requested_fps": 60,
+    "keep_both_eyes": true,
+    "verified": {
+      "full_resolution_capture": true,
+      "side_by_side_layout": true,
+      "measured_arrival_fps": 33.13,
+      "frame_count": 133,
+      "timestamp_span_s": 3.9842448,
+      "sustained_60_fps_verified": false,
+      "hardware_exposure_sync_verified": false
+    },
+    "stage1_application_validation": {
+      "measurement_seconds": 30.042086699977517,
+      "received_frames": 995,
+      "measured_arrival_fps": 33.120202665573984,
+      "native_jpeg_invalid_frames": 0,
+      "left_eye_processing_fps_recent": 32.833,
+      "processing_scene": "Near-black captured scene with no detected face; not a face-detection performance benchmark",
+      "usb_link": "HighSpeed USB 2.0",
+      "fps_filter_or_reencoding_in_native_capture": false,
+      "sixty_fps_issue_resolved": false,
+      "fps_investigation": "Native MJPEG copy, manual/auto exposure and 2560x720 at requested 120 fps all measured around 33 fps. Exact device/driver limitation is not confirmed.",
+      "evidence": "../../hardware_inventory/stage1/runtime-final/validation.json"
+    },
+    "evidence": "../../hardware_inventory/capability-probe/camera-packet-rate-tests.json"
+  },
+  "microphone": {
+    "model": "YDPI4MIC",
+    "capsule_description_from_user": "Four analog silicon microphones",
+    "device_name": "YDPI4MIC",
+    "usb_vid": "EF09",
+    "usb_pid": "459D",
+    "channels": 4,
+    "keep_all_channels": true,
+    "sample_rate_hz": 48000,
+    "sample_bits": 16,
+    "sample_format": "PCM signed int16 little-endian",
+    "windows_api": "WASAPI",
+    "wasapi_exclusive": false,
+    "verified": {
+      "capture_success": true,
+      "duration_s": 3.0,
+      "frames": 144000,
+      "overflow_count": 0,
+      "physical_channel_mapping_calibrated": false
+    },
+    "serial_interface": {
+      "observed_port": "COM4",
+      "belongs_to": "microphone board",
+      "protocol_known": false
+    },
+    "evidence": "../../hardware_inventory/vendor-review/wasapi-four-channel-validation.json"
+  },
+  "stage1": {
+    "native_camera_and_wasapi_integrated": true,
+    "local_and_example_settings_migrated": true,
+    "background_control_target_hz": 30,
+    "measured_control_hz": 30.001,
+    "full_4ch_recording_frames": 1441920,
+    "audio_overflows": 0,
+    "recording_dropped_blocks": 0,
+    "microphone_serial_excluded_from_servo_selection": true,
+    "smooth_trajectory_sample_hz": 50,
+    "smooth_trajectory_offline_verified": true,
+    "physical_servo_test": false,
+    "four_microphone_doa_calibrated": false,
+    "stereo_depth_implemented": false,
+    "evidence_root": "../../hardware_inventory/stage1/"
+  },
+  "integration_status": "Stage 1 application acquisition and offline smooth-motion upgrade completed. Sustained 60 fps, four-microphone localization, stereo depth and physical servo smoothness remain unverified.",
+  "report": "../../algorithm_guide/index.html"
+}

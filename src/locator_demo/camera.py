@@ -20,6 +20,7 @@ class VisionStatus:
     message: str
     fps: float = 0.0
     detector: str = "unknown"
+    inference_fps: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,16 @@ class VisionFrameResult:
     status: VisionStatus
     targets: list[FaceTarget] = field(default_factory=list)
     body_target: BodyTarget | None = None
+    stereo_jpeg_base64: str = ""
+    capture_sequence: int = 0
+    captured_monotonic: float = 0.0
+    detection_sequence: int = 0
+    focus_previews: dict[str, str] = field(default_factory=dict)
+    eye_frames: dict[str, str] = field(default_factory=dict)
+    eye_targets: dict[str, list[FaceTarget]] = field(default_factory=dict)
+    binocular: dict = field(default_factory=dict)
+    control_eye: str = ""
+    control_ready: bool = True
 
 
 def _repo_models_dir() -> Path:
@@ -370,6 +381,7 @@ class FfmpegCameraSnapshot:
                 "scrfd_10g_bnkps.onnx",
                 "scrfd_34g_gnkps.onnx",
                 "det_10g.onnx",
+                "scrfd.onnx",
             ),
         )
 
@@ -410,6 +422,10 @@ class FfmpegCameraSnapshot:
                 det_thresh=float(self.scrfd_threshold),
             )
             self._scrfd_detector = detector
+            session = getattr(detector, "session", None)
+            actual = session.get_providers() if session is not None else []
+            if actual:
+                self._scrfd_device = "cuda" if "CUDAExecutionProvider" in actual else "cpu"
             self._scrfd_detector_key = key
             return detector
         except Exception as exc:
@@ -703,16 +719,20 @@ class FfmpegCameraSnapshot:
             return None
 
     def _detect_targets(self, jpeg_bytes: bytes) -> list[FaceTarget]:
+        """Legacy JPEG entry point; native stereo uses the decoded image directly."""
         try:
             import cv2
             import numpy as np
+            image = cv2.imdecode(np.frombuffer(jpeg_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+            return self._detect_image_targets(image) if image is not None else []
         except Exception:
             self._latest_body_target = None
             return []
+
+    def _detect_image_targets(self, image) -> list[FaceTarget]:
+        import cv2
         try:
             self._latest_body_target = None
-            data = np.frombuffer(jpeg_bytes, dtype=np.uint8)
-            image = cv2.imdecode(data, cv2.IMREAD_COLOR)
             if image is None:
                 return []
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -827,7 +847,8 @@ class FfmpegCameraSnapshot:
         self._next_tracked_face_id += 1
         return replace(target, face_id=face_id)
 
-    def _stabilize_targets(self, targets: list[FaceTarget], now_s: float | None = None) -> list[FaceTarget]:
+    def _stabilize_targets(self, targets: list[FaceTarget], now_s: float | None = None,
+                           *, unique_new_ids: bool = False) -> list[FaceTarget]:
         now = time.time() if now_s is None else float(now_s)
         previous = [(target, seen_s) for target, seen_s in self._tracked_targets if now - seen_s <= self._target_hold_s]
         if not targets:
@@ -852,7 +873,7 @@ class FfmpegCameraSnapshot:
                     best_index = index
                     best_distance = distance
             if best_index is None:
-                if target.face_id in previous_face_ids or target.face_id in used_face_ids:
+                if unique_new_ids or target.face_id in previous_face_ids or target.face_id in used_face_ids:
                     stabilized_target = self._assign_new_tracked_face_id(target, previous_face_ids | used_face_ids)
                 else:
                     stabilized_target = target

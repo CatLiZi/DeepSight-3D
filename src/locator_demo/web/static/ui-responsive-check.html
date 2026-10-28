@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DeepSight · 布局检查</title>
+<style>body{margin:18px;background:#e8eef2;color:#314f60;font:13px/1.6 Segoe UI,Microsoft YaHei,sans-serif}h1{font-size:18px;margin:0 0 8px}button{padding:7px 12px;background:white;border:1px solid #bdced9;border-radius:5px;margin:0 6px 8px 0;color:#315c6c;cursor:pointer}button[aria-pressed=true]{background:#0c877a;color:white}.toolbar{display:flex;gap:14px;flex-wrap:wrap}#result{margin:3px 0 10px}iframe{display:block;width:390px;height:900px;border:1px solid #b8cbd6;border-radius:8px;background:white}p{margin:0 0 10px;color:#6c8695}</style>
+<h1>响应式布局检查</h1><p>只改变预览窗口和页面导航；不发送硬件控制指令。</p>
+<div class="toolbar"><div><button data-width="390" aria-pressed="true">手机 390</button><button data-width="768" aria-pressed="false">平板 768</button><button data-width="1440" aria-pressed="false">桌面 1440</button></div><div><button data-view="live" aria-pressed="true">实时感知</button><button data-view="control" aria-pressed="false">头部控制</button><button data-view="devices" aria-pressed="false">设备配置</button><button data-view="logs" aria-pressed="false">日志</button></div></div>
+<div id="result">正在载入…</div><iframe id="viewport" title="真实控制页的响应式预览" src="/#live"></iframe>
+<script>
+const viewport=document.getElementById('viewport');let width=390,view='live';
+document.querySelectorAll('[data-width]').forEach(button=>button.onclick=()=>{width=Number(button.dataset.width);viewport.style.width=width+'px';document.querySelectorAll('[data-width]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
+document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;viewport.contentWindow.location.hash=view;document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
+setInterval(()=>{try{const doc=viewport.contentDocument,root=doc.documentElement;document.getElementById('result').textContent=`窗口 ${root.clientWidth}px · 页面 ${root.scrollWidth}px · ${view} · ${root.scrollWidth<=root.clientWidth+1?'无页面横向溢出':'发现横向溢出'}`;}catch(e){document.getElementById('result').textContent='等待预览页面';}},300);
+</script></html>

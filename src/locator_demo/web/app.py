@@ -3,14 +3,18 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from collections import deque
+from functools import wraps
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..asd import RuleBasedAsdBackend, make_asd_backend
 from ..audio import (
@@ -19,16 +23,21 @@ from ..audio import (
     apply_audio_channel_mapping,
     azimuth_from_tdoa,
     classify_audio_direction,
-    with_motor_suppression,
 )
+from ..audio_motion import qualify_audio_during_motion
+from ..dominant_sound import DominantSoundLock
 from ..audio_device import FfmpegAudioLocalizer, SimulatedAudioLocalizer
+from ..array_audio import WasapiArrayAudio
 from ..camera import FfmpegCameraSnapshot, SimulatedVisionTracker, VisionStatus
-from ..devices import list_dshow_devices
-from ..head import AxisConfig, DirectionConfig, HeadControllerLogic, HeadPose
+from ..devices import list_dshow_devices, list_wasapi_inputs
+from ..stereo_vision import StereoVisionTracker
+from ..motion import SmoothHeadHardware
+from ..head import AxisConfig, DirectionConfig, HeadControllerLogic, HeadPose, DEFAULT_YAW_MIN, DEFAULT_YAW_CENTER, DEFAULT_YAW_MAX
 from ..orchestrator import DemoMode, DemoState, LocatorStateMachine
-from ..servo_bus import TwoAxisHeadHardware, ZPServoBus, choose_servo_port, list_serial_ports
+from ..servo_bus import TwoAxisHeadHardware, ZPServoBus, choose_servo_port, list_serial_ports, is_microphone_port, servo_port_candidates
 from ..settings import (
     AudioMappingConfig,
+    AudioCaptureConfig,
     AudioProcessingConfig,
     AxisLimitsConfig,
     CameraConfig,
@@ -39,8 +48,19 @@ from ..settings import (
     default_settings_path,
     load_settings,
     save_settings,
+    validate_servo_ids,
+    validate_axis_limits,
 )
 from ..vision import FaceTarget, choose_active_speaker_target, normalized_center_error
+from ..fixation import fixation_overlay
+from ..diagnostics import DiagnosticJournal, request_id
+from ..visual_trigger import VisualAxisTrigger
+from ..visual_servo import ImageVelocity, adaptive_visual_step
+from ..capture import StereoCameraCapture
+
+
+class MotionRequestCancelled(RuntimeError):
+    """A stop or newer intent invalidated a pending movement request."""
 
 
 class ScanRequest(BaseModel):
@@ -89,6 +109,11 @@ class ServoConfigRequest(BaseModel):
     pitch_id: int = 2
     port: str | None = None
 
+    @model_validator(mode='after')
+    def check_axes(self):
+        validate_servo_ids(self.yaw_id, self.pitch_id)
+        return self
+
 
 class DirectionConfigRequest(BaseModel):
     yaw_left_sign: int = -1
@@ -106,30 +131,80 @@ class CameraConfigRequest(BaseModel):
     device_name: str | None = None
     video_size: str | None = None
     crop_left_half: bool | None = None
-    fps: int | None = Field(None, ge=1, le=30)
-    output_width: int = Field(640, ge=320, le=1920)
+    fps: int | None = Field(None, ge=1, le=240)
+    output_width: int = Field(1920, ge=320, le=1920)
+    capture_backend: Literal["stereo_mjpeg", "legacy"] = "stereo_mjpeg"
+    input_fps: int = Field(60, ge=1, le=240)
+    usb_vid: str = Field("1BCF", pattern=r"^[0-9a-fA-F]{4}$")
+    usb_pid: str = Field("0B15", pattern=r"^[0-9a-fA-F]{4}$")
+    tracking_eye: Literal["auto", "left", "right"] = "auto"
+    left_rotation: Literal[0, 180] = 0
+    right_rotation: Literal[0, 180] = 0
+    multi_scale_search: bool = True
+    focus_assist: bool = True
+    preview_jpeg_quality: int = Field(95, ge=70, le=100)
+    stereo_calibration_path: str = "calibration/stereo_camera.json"
+    stereo_geometry_enabled: bool = True
     face_detector_backend: str = "mediapipe"
     scrfd_model_path: str | None = None
     scrfd_threshold: float = Field(0.35, ge=0.0, le=1.0)
     scrfd_input_size: int = Field(640, ge=320, le=1280)
 
 
+class StereoCalibrationRequest(BaseModel):
+    square_mm: float = Field(20.,ge=10.,le=50.)
+    scale_confirmed: bool = False
+
+
 class AudioMappingConfigRequest(BaseModel):
     swap_channels: bool = False
+
+
+class AudioCaptureConfigRequest(BaseModel):
+    backend: Literal["wasapi", "legacy"] = "wasapi"
+    device_name: str = "YDPI4MIC"
+    channels: int = Field(4, ge=4, le=4)
+    sample_rate: int = Field(48000, ge=48000, le=48000)
+    sample_bits: int = Field(16, ge=16, le=16)
+    block_ms: int = Field(20, ge=5, le=100)
+    usb_vid: str = Field("EF09", pattern=r"^[0-9a-fA-F]{4}$")
+    usb_pid: str = Field("459D", pattern=r"^[0-9a-fA-F]{4}$")
+    wasapi_raw: bool = True
+    localization_mode: Literal["disabled", "ear_pair"] = "disabled"
+    ear_left_channel: int | None = Field(None, ge=1, le=4)
+    ear_right_channel: int | None = Field(None, ge=1, le=4)
+    ear_mapping_confirmed: bool = False
+    ear_spacing_m: float | None = Field(None, ge=.02, le=.5)
+    ear_delay_offset_us: float = Field(0, ge=-1000, le=1000)
+
+    @model_validator(mode="after")
+    def check_ear_pair(self):
+        AudioCaptureConfig(**self.model_dump())
+        return self
 
 
 class ControlConfigRequest(BaseModel):
     control_profile: str = "stable"
     motor_guard_ms: int = 250
+    smooth_motion: bool = True
+    motion_hz: int = Field(50, ge=10, le=100)
+    max_velocity: float = Field(180, ge=20, le=600)
+    max_acceleration: float = Field(600, ge=50, le=3000)
+    max_jerk: float = Field(3000, ge=200, le=20000)
 
 
 class AxisLimitsConfigRequest(BaseModel):
-    yaw_min: int = 1200
-    yaw_center: int = 1500
-    yaw_max: int = 1800
+    yaw_min: int = DEFAULT_YAW_MIN
+    yaw_center: int = DEFAULT_YAW_CENTER
+    yaw_max: int = DEFAULT_YAW_MAX
     pitch_min: int = 1200
     pitch_center: int = 1500
     pitch_max: int = 1800
+
+    @model_validator(mode='after')
+    def check_bounds(self):
+        validate_axis_limits(self.model_dump())
+        return self
 
 
 class AudioProcessingConfigRequest(BaseModel):
@@ -148,6 +223,7 @@ class AudioProcessingConfigRequest(BaseModel):
 class VisionProcessingConfigRequest(BaseModel):
     active_speaker_enabled: bool = True
     tracking_strategy: str = "classic_audio_first"
+    audio_sector_half_width_deg: float = Field(15.,ge=5.,le=30.)
     asd_backend: str = "rules"
     speaker_lock_policy: str = "turn_hold"
     target_offset_x_norm: float = Field(0.04, ge=-0.25, le=0.25)
@@ -175,7 +251,7 @@ class VisionProcessingConfigRequest(BaseModel):
 
 @dataclass
 class RuntimeConfig:
-    port: str = "COM14"
+    port: str | None = "COM14"
     yaw_id: int | None = None
     pitch_id: int = 2
     simulated: bool = False
@@ -201,6 +277,13 @@ class SimulatedBus(ZPServoBus):
     def set_mode_1(self, servo_id: int) -> str:
         return "#OK!"
 
+    def arm(self, servo_id: int, *, force=False):
+        self._armed_ids.add(int(servo_id))
+
+    def activate_axis(self, axis, *, expected_position=None):
+        self.arm(axis.servo_id)
+        return self.positions.get(axis.servo_id,expected_position if expected_position is not None else axis.center)
+
     def move(self, servo_id: int, position: int, time_ms: int, *, force_arm: bool = False) -> None:
         self.positions[int(servo_id)] = int(position)
         self.moves.append((int(servo_id), int(position), int(time_ms)))
@@ -223,6 +306,14 @@ class SimulatedBus(ZPServoBus):
 class DemoRuntime:
     def __init__(self, config: RuntimeConfig):
         self.config = config
+        self.journal = DiagnosticJournal(config.settings_path.parent / 'logs' if config.settings_path and not config.simulated else None)
+        self._events_lock = threading.Lock()
+        self._intent_lock = threading.RLock()
+        self._start_generation = 0
+        self._motion_fault = ''
+        self._feedback = {}
+        self._feedback_misses = {}
+        self._feedback_worker = None
         saved = load_settings(config.settings_path)
         if saved.port:
             self.config.port = saved.port
@@ -232,6 +323,7 @@ class DemoRuntime:
         self.features = saved.features
         self.camera = saved.camera
         self.audio_mapping = saved.audio_mapping
+        self.audio_capture = saved.audio_capture
         self.control = saved.control
         self.axis_limits = saved.axis_limits
         self.audio_processing = saved.audio
@@ -240,22 +332,17 @@ class DemoRuntime:
             self.config.port = choose_servo_port(config.port)
         self.logic = self._make_logic()
         self.bus = SimulatedBus() if config.simulated else ZPServoBus(config.port)
+        self._attach_bus_diagnostics()
         self.head = self._make_head()
-        self.audio = (
-            SimulatedAudioLocalizer()
-            if config.simulated
-            else FfmpegAudioLocalizer(
-                denoise=self.audio_processing.denoise_enabled,
-                denoise_dry_mix=self.audio_processing.denoise_dry_mix,
-                denoise_output_dir=self.audio_processing.denoise_output_dir,
-                use_denoised_for_localization=self.audio_processing.use_denoised_for_localization,
-            )
-        )
+        self.audio = self._make_audio()
         self.vision = self._make_vision()
         self.state_machine = self._make_state_machine()
         self.running = False
+        self._motion_pose_synced = False
         self.pose = self.logic.center_pose
         self.last_audio = AudioEstimate(AudioDirection.UNKNOWN, 0.0, 0.0, 0.0)
+        self.last_raw_audio = self.last_audio
+        self._audio_motion_context = {}
         self.last_target = None
         self.last_targets = []
         self.last_body_target = None
@@ -267,9 +354,18 @@ class DemoRuntime:
         self._silent_visual_candidate_since_s = 0.0
         self.audio_search_allowed = True
         self.asd_backend = make_asd_backend(self.vision_processing.asd_backend)
+        self._set_vision_selection_policy()
         self.last_state = self.state_machine.update(audio=None, target=None, now_s=time.time())
         self.events: list[dict[str, Any]] = []
         self.last_frame_b64 = ""
+        self.last_stereo_frame_b64 = ""
+        self.last_focus_previews = {}
+        self.last_eye_frames = {}
+        self.last_eye_targets = {}
+        self.last_binocular = {}
+        self._last_control_eye = ""
+        self._last_coordinate_frame = ""
+        self._last_control_detection_sequence = 0
         self.last_frame_width = 640
         self.last_frame_height = 400
         self.last_vision_status = (
@@ -281,6 +377,13 @@ class DemoRuntime:
         self.motion_interval_s = self._profile_params()["motion_interval_s"]
         self.motor_guard_until_s = 0.0
         self._smoothed_error: tuple[float, float] | None = None
+        self._last_visual_identity=None
+        self._visual_approach={}
+        self._visual_triggers = {axis: VisualAxisTrigger() for axis in ('yaw', 'pitch')}
+        self._visual_control = {}
+        self._image_velocity = ImageVelocity()
+        self._last_visual_log = ('', 0.)
+        self._last_audio_association_log = (None,0.)
         self._pitch_error_direction = 0
         self._pitch_error_hits = 0
         self._audio_seek_origin_yaw: int | None = None
@@ -288,6 +391,15 @@ class DemoRuntime:
         self._audio_seek_steps = 0
         self._last_audio_seek_abs_azimuth: float | None = None
         self._last_audio_seek_direction = ""
+        self._last_audio_seek_observation = None
+        self._audio_seek_stop_reason = ""
+        self._dominant_sound = DominantSoundLock()
+        self._dominant_context = None
+        self._core_motion_authorized = False
+        self._core_motion_reason = 'awaiting_current_core_evidence'
+        self._last_core_sound_log = (None, 0.)
+        self._servo_discovery = {'reason':'not_checked','port':self.config.port}
+        self._stereo_preflight = {'status':'not_checked','message':'开始运行前将检查双目画面'}
         self._reframe_origin_yaw: int | None = None
         self._reframe_started_s = 0.0
         self._reframe_step = 0
@@ -295,7 +407,162 @@ class DemoRuntime:
         self._last_reframe_audio_s = 0.0
         self._reframe_active = False
         self.visual_calibration_samples: list[dict[str, Any]] = []
-        self._tick_lock = threading.Lock()
+        self._tick_lock = threading.RLock()
+        self._control_stop = threading.Event()
+        self._control_worker = None
+        self._control_times = deque(maxlen=300)
+        self.log('runtime_started', {'port': self.config.port, 'yaw_id': self.config.yaw_id, 'pitch_id': self.config.pitch_id})
+
+    def _attach_bus_diagnostics(self):
+        if isinstance(self.bus, ZPServoBus):
+            self.bus.diagnostic_sink = lambda event, detail, error=False: self.journal.record(
+                event, detail, kind='serial', level='error' if error else 'info')
+
+    def begin_start(self):
+        with self._intent_lock:
+            self._start_generation += 1
+            return self._start_generation
+
+    def motion_generation(self):
+        with self._intent_lock:
+            return self._start_generation
+
+    def _check_motion_generation(self, generation):
+        with self._intent_lock:
+            if generation != self._start_generation:
+                raise MotionRequestCancelled('动作请求已被停止或新请求取消；请重新操作')
+
+    def finish_start(self, generation):
+        with self._intent_lock:
+            if generation != self._start_generation:
+                raise RuntimeError('启动已被停止操作取消；请重新点击开始')
+            if self._motion_fault:
+                raise RuntimeError(self._motion_fault)
+            self.running = True
+        self.log('demo_start')
+
+    def halt_motion(self, reason='', *, fault=False):
+        # Invalidate pending requests before waiting for feedback or dispatch.
+        with self._intent_lock:
+            self._start_generation += 1
+            generation = self._start_generation
+            self.running = False
+            self._core_motion_authorized = False
+            self._core_motion_reason = 'stopped'
+            if fault:
+                self._motion_pose_synced = False
+                self._motion_fault = reason
+        if hasattr(self.head, 'cancel'):
+            self.head.cancel()
+        if fault:
+            self.log('motion_feedback_error', {'error': reason, 'feedback': self._feedback})
+        return generation
+
+    def _feedback_loop(self):
+        while not self._control_stop.wait(1.0):
+            head = self.head
+            metrics = head.metrics() if hasattr(head, 'metrics') else {}
+            if metrics.get('error'):
+                if not self._motion_fault:
+                    self.halt_motion(metrics['error'], fault=True)
+                continue
+            if self.config.simulated or not self.bus.connected or not (self.running or metrics.get('prepared') and metrics.get('worker_active')):
+                continue
+            for axis in (head.yaw, head.pitch):
+                if axis is None or head is not self.head:
+                    continue
+                try:
+                    raw = self.bus.read_position_response(axis.servo_id, timeout_s=.12)
+                    value = self.bus.parse_position(raw, axis.servo_id)
+                    error = ''
+                except Exception as exc:
+                    value, raw, error = None, '', str(exc)
+                # Release serial IO before taking the runtime lock. A manual
+                # resync may have replaced this head while the read was pending.
+                with self._tick_lock:
+                    if head is not self.head:
+                        break
+                    valid = value is not None and axis.minimum <= value <= axis.maximum
+                    self._feedback[axis.servo_id] = dict(position=value, raw=raw, ts=time.time(), valid=valid, error=error)
+                    self._feedback_misses[axis.servo_id] = 0 if valid else self._feedback_misses.get(axis.servo_id, 0) + 1
+                    if self._feedback_misses[axis.servo_id] >= 2:
+                        self.halt_motion(f'Servo {axis.servo_id} has no valid position feedback; motion remains stopped', fault=True)
+                        head.stop() if hasattr(head, 'stop') else None
+                        break
+
+    @property
+    def control_loop_active(self):
+        return self._control_worker is not None and self._control_worker.is_alive()
+
+    def start_control_loop(self):
+        if self.config.simulated or self.control_loop_active:
+            return
+        self._control_stop.clear()
+        self._control_worker = threading.Thread(target=self._control_loop, daemon=True)
+        self._control_worker.start()
+        self._feedback_worker = threading.Thread(target=self._feedback_loop, daemon=True)
+        self._feedback_worker.start()
+
+    def _control_loop(self):
+        deadline = time.perf_counter()
+        while not self._control_stop.is_set():
+            try:
+                self.tick(include_frame=False)
+                with self._tick_lock:
+                    self._control_times.append(time.perf_counter())
+            except Exception as exc:
+                self.halt_motion(str(exc), fault=True)
+                self.log("control_tick_error", {"error": str(exc)})
+            deadline += 1 / 30
+            now = time.perf_counter()
+            if deadline < now:
+                deadline = now + 1 / 30
+            self._control_stop.wait(max(0, deadline - now))
+
+    @staticmethod
+    def _serialized(method):
+        @wraps(method)
+        def call(self, *args, **kwargs):
+            with self._tick_lock:
+                return method(self, *args, **kwargs)
+        return call
+
+    @staticmethod
+    def _motion_serialized(method):
+        @wraps(method)
+        def call(self, *args, generation=None, **kwargs):
+            # Capture before waiting for the runtime lock. HTTP callers also
+            # capture before submitting work to the thread pool.
+            generation = self.motion_generation() if generation is None else generation
+            try:
+                with self._tick_lock:
+                    self._check_motion_generation(generation)
+                    return method(self, *args, generation=generation, **kwargs)
+            except MotionRequestCancelled:
+                self.log('motion_request_cancelled', {'method': method.__name__, 'generation': generation})
+                raise
+        return call
+
+    def _submit_pose(self, pose, *, time_ms, current, generation):
+        self._check_motion_generation(generation)
+        head = self.head
+        # Never hold the intent lock across backend IO. Stop must still be
+        # able to invalidate the request if a backend submission is delayed.
+        head.move_to(pose, time_ms=time_ms, current=current)
+        with self._intent_lock:
+            cancelled = generation != self._start_generation
+            if not cancelled:
+                self.pose = pose
+                now_s = time.time()
+                self.last_motion_s = now_s
+                self.motor_guard_until_s = now_s + max(0, int(time_ms))/1000.0 + self.control.motor_guard_ms/1000.0
+        if cancelled:
+            # A late enqueue may have arrived after Stop already cancelled
+            # this head. Discard that trajectory and do not publish its goal.
+            # An already transmitted driver write cannot be retracted here.
+            if hasattr(head, 'cancel'):
+                head.cancel()
+            raise MotionRequestCancelled('动作请求已被停止或新请求取消；迟到轨迹已清除')
 
     def _profile_params(self) -> dict[str, Any]:
         if self.control.control_profile == "fast":
@@ -349,6 +616,14 @@ class DemoRuntime:
         }
 
     def stop(self) -> None:
+        self.halt_motion()
+        self._control_stop.set()
+        if self._control_worker and self._control_worker is not threading.current_thread():
+            self._control_worker.join(timeout=15)
+        if self._feedback_worker and self._feedback_worker is not threading.current_thread():
+            self._feedback_worker.join(timeout=2)
+        if hasattr(self.head, "stop"):
+            self.head.stop()
         try:
             self.audio.stop()
         except Exception:
@@ -361,6 +636,11 @@ class DemoRuntime:
             self.bus.close()
         except Exception:
             pass
+
+    def shutdown(self):
+        self.stop()
+        self.log('runtime_stopped')
+        self.journal.close()
 
     def _visual_control_params(self, params: dict[str, Any]) -> dict[str, Any]:
         visual_yaw_mode = self.vision_processing.visual_yaw_mode
@@ -380,7 +660,7 @@ class DemoRuntime:
         pitch_deadband = (
             float(self.vision_processing.visual_pitch_deadband)
             if self.vision_processing.visual_pitch_deadband is not None
-            else float(params["pitch_deadband"])
+            else .04 if self.vision_processing.tracking_strategy == 'visual_priority' else float(params["pitch_deadband"])
         )
         max_pitch_delta = (
             int(self.vision_processing.visual_pitch_max_delta)
@@ -402,6 +682,29 @@ class DemoRuntime:
         self._audio_seek_steps = 0
         self._last_audio_seek_abs_azimuth = None
         self._last_audio_seek_direction = ""
+        self._last_audio_seek_observation = None
+        self._audio_seek_stop_reason = ""
+
+    def _record_audio_association(self, now):
+        raw=self.last_raw_audio
+        if raw.speech_confidence<.5:
+            return
+        selection=self.last_binocular.get('target_selection',{})
+        key=(raw.direction.value,raw.noise_state,self.last_audio.noise_state,selection.get('selected_person_id'))
+        previous,at=self._last_audio_association_log
+        if now-at<.75 or (key==previous and now-at<2.):
+            return
+        self._last_audio_association_log=(key,now)
+        candidates=[{k:row.get(k) for k in ('person_id','azimuth_left_deg','face_interval_deg',
+            'in_sector','angular_gap_deg','match_score')} for row in selection.get('candidates',[])[:5]]
+        self.log('voice_direction_diagnostic',{
+            'raw_direction':raw.direction.value,'raw_azimuth_deg':raw.azimuth_deg,'tdoa_us':raw.tdoa_s*1e6,
+            'speech_probability':raw.speech_confidence,'doa_confidence':raw.doa_confidence,
+            'temporal_stability':raw.temporal_stability,'raw_reason':raw.noise_state,
+            'delivered_direction':self.last_audio.direction.value,'motion_context':dict(self._audio_motion_context),
+            'features':asdict(self.features),'running':self.running,'selection_mode':selection.get('mode'),
+            'selection_reason':selection.get('audio_reason'),'selected_person_id':selection.get('selected_person_id'),
+            'candidates':candidates,'angles_are_estimates_not_calibration_truth':True})
 
     def _reset_reframe(self) -> None:
         self._reframe_origin_yaw = None
@@ -501,11 +804,7 @@ class DemoRuntime:
         )
         mouth_gate = max(0.03, self.vision_processing.mouth_evidence_threshold * 0.5)
         active_score = float(getattr(target, "active_speaker_score", 0.0))
-        face_height_ratio = float(getattr(target, "face_height_ratio", 0.0))
-        if face_height_ratio <= 0.0 and self.last_frame_height > 0:
-            face_height_ratio = max(0.0, float(target.y2 - target.y1) / float(self.last_frame_height))
-        size_evidence = face_height_ratio >= 0.12 or float(getattr(target, "area", 0.0)) >= 8000.0
-        return mouth_evidence >= mouth_gate or active_score > self.vision_processing.visual_speaker_threshold + 0.02 or size_evidence
+        return mouth_evidence >= mouth_gate or active_score > self.vision_processing.visual_speaker_threshold + 0.02
 
     def _reset_speaker_lock(self) -> None:
         self.locked_speaker_id = None
@@ -609,62 +908,11 @@ class DemoRuntime:
                     backend=backend_status.actual,
                 )
             )
-        if annotated:
-            winner = max(
-                annotated,
-                key=lambda t: (
-                    float((t.x2 - t.x1) * (t.y2 - t.y1)),
-                    float(t.score),
-                    float(t.face_height_ratio),
-                    float(t.area),
-                ),
-                default=None,
-            )
-            if winner is not None:
-                annotated = [
-                    replace(
-                        t,
-                        active_candidate=False,
-                        locked=(t.face_id == winner.face_id),
-                        specific_speaker=(t.face_id == winner.face_id),
-                    )
-                    for t in annotated
-                ]
-            else:
-                annotated = [replace(t, active_candidate=False, locked=False, specific_speaker=False) for t in annotated]
         return annotated
 
     def _select_crowded_target(self, targets: list[FaceTarget], now_s: float) -> tuple[FaceTarget | None, DemoState]:
         threshold = self._effective_asd_threshold()
         audio_ready = self.state_machine._audio_is_ready(self.last_audio) if self.features.audio_enabled else False
-        if targets:
-            visual_winner = max(
-                targets,
-                key=lambda target: ((target.x2 - target.x1) * (target.y2 - target.y1), target.score, target.face_height_ratio),
-            )
-            marked_targets = []
-            for target in targets:
-                is_selected = target.face_id == visual_winner.face_id
-                marked_targets.append(
-                    replace(
-                        target,
-                        active_candidate=False,
-                        locked=is_selected,
-                        specific_speaker=is_selected,
-                    )
-                )
-            self.last_targets = marked_targets
-            self.last_target = visual_winner
-            self.audio_search_allowed = bool(self.vision_processing.audio_interrupt_enabled)
-            return visual_winner, DemoState(
-                DemoMode.SPEAKER_LOCKED,
-                audio_direction=self.last_audio.direction.value,
-                visual_locked=True,
-                target_label=visual_winner.label,
-                last_event="visual_target_locked",
-                audio_ready=audio_ready,
-                target_confirmed=True,
-            )
         near_targets = [target for target in targets if target.near_candidate]
         active_targets = [target for target in near_targets if target.active_candidate]
         locked_target = None
@@ -818,7 +1066,7 @@ class DemoRuntime:
             direction=self.direction,
         )
 
-    def _make_head(self) -> TwoAxisHeadHardware:
+    def _make_head(self, *, only_axis: str | None = None) -> TwoAxisHeadHardware:
         yaw_axis = (
             AxisConfig(
                 servo_id=self.config.yaw_id,
@@ -826,7 +1074,7 @@ class DemoRuntime:
                 minimum=self.axis_limits.yaw_min,
                 maximum=self.axis_limits.yaw_max,
             )
-            if self.config.yaw_id is not None
+            if self.config.yaw_id is not None and only_axis != "pitch"
             else None
         )
         pitch_axis = AxisConfig(
@@ -835,12 +1083,59 @@ class DemoRuntime:
             minimum=self.axis_limits.pitch_min,
             maximum=self.axis_limits.pitch_max,
         )
-        return TwoAxisHeadHardware(self.bus, yaw=yaw_axis, pitch=pitch_axis)
+        head = TwoAxisHeadHardware(self.bus, yaw=yaw_axis, pitch=pitch_axis if only_axis != "yaw" else None)
+        if self.control.smooth_motion and not self.config.simulated:
+            return SmoothHeadHardware(head, initial=getattr(self, "pose", self.logic.center_pose), config=self.control)
+        return head
+
+    def _rebuild_head(self):
+        previous = getattr(self, "head", None)
+        estimated = getattr(previous, "estimated_pose", self.pose)
+        if hasattr(previous, "stop"):
+            previous.stop()
+        self.pose = self.logic.clamp_pose(estimated)
+        self.head = self._make_head()
+
+    def _make_audio(self):
+        if self.config.simulated:
+            return SimulatedAudioLocalizer()
+        if self.audio_capture.backend == "wasapi":
+            source = WasapiArrayAudio(device_name=self.audio_capture.device_name, channels=self.audio_capture.channels,
+                                     sample_rate=self.audio_capture.sample_rate, block_ms=self.audio_capture.block_ms,
+                                     usb_vid=self.audio_capture.usb_vid, usb_pid=self.audio_capture.usb_pid,
+                                     wasapi_raw=self.audio_capture.wasapi_raw,ear_config=self.audio_capture.ear_pair_config(),
+                                     speech_vad=self.audio_processing.vad_enabled,
+                                     recording_enabled=self.audio_processing.recording_enabled,
+                                     output_dir=self.audio_processing.denoise_output_dir)
+            source.diagnostic_sink = lambda event, detail: self.journal.record(event, detail,
+                level='error' if event == 'audio_capture_fault' else 'info')
+            return source
+        return FfmpegAudioLocalizer(device_name=self.audio_capture.device_name,
+                                     recording_enabled=self.audio_processing.recording_enabled,
+                                     denoise=self.audio_processing.denoise_enabled,
+                                     denoise_dry_mix=self.audio_processing.denoise_dry_mix,
+                                     denoise_output_dir=self.audio_processing.denoise_output_dir,
+                                     use_denoised_for_localization=self.audio_processing.use_denoised_for_localization)
 
     def _make_vision(self):
         if self.config.simulated:
             return SimulatedVisionTracker()
-        return FfmpegCameraSnapshot(
+        tracker = StereoVisionTracker if self.camera.capture_backend == "stereo_mjpeg" else FfmpegCameraSnapshot
+        capture_options = ({"input_fps": self.camera.input_fps, "usb_vid": self.camera.usb_vid,
+                            "usb_pid": self.camera.usb_pid, "tracking_eye": self.camera.tracking_eye,
+                            "left_rotation": self.camera.left_rotation, "right_rotation": self.camera.right_rotation}
+                           if tracker is StereoVisionTracker else {})
+        if tracker is StereoVisionTracker:
+            capture_options['audio_visual_guided']=self.vision_processing.tracking_strategy in ('audio_visual_guided','visual_priority')
+            capture_options['visual_priority']=self.vision_processing.tracking_strategy=='visual_priority'
+            capture_options['audio_sector_half_width_deg']=self.vision_processing.audio_sector_half_width_deg
+            capture_options.update(multi_scale_search=self.camera.multi_scale_search,
+                                   focus_assist=self.camera.focus_assist,
+                                   preview_jpeg_quality=self.camera.preview_jpeg_quality,
+                                   stereo_calibration_path=self.camera.stereo_calibration_path,
+                                   stereo_geometry_enabled=self.camera.stereo_geometry_enabled)
+        result = tracker(
+            **capture_options,
             device_name=self.camera.device_name,
             video_size=self.camera.video_size,
             crop_left_half=self.camera.crop_left_half,
@@ -851,6 +1146,10 @@ class DemoRuntime:
             scrfd_threshold=self.camera.scrfd_threshold,
             scrfd_input_size=self.camera.scrfd_input_size,
         )
+        capture = getattr(result, 'capture', None)
+        if isinstance(capture, StereoCameraCapture):
+            capture.diagnostic_sink = lambda event, detail: self.journal.record(event, detail, level='error')
+        return result
 
     def _make_state_machine(self) -> LocatorStateMachine:
         return LocatorStateMachine(
@@ -860,12 +1159,11 @@ class DemoRuntime:
             required_audio_hits=self.audio_processing.required_audio_hits,
             visual_speaker_threshold=self.vision_processing.visual_speaker_threshold,
             mouth_evidence_threshold=self.vision_processing.mouth_evidence_threshold,
+            require_recent_audio=self.vision_processing.active_speaker_enabled,
         )
 
     def _persist_settings(self) -> None:
-        save_settings(
-            self.config.settings_path,
-            SavedSettings(
+        settings = SavedSettings(
                 port=self.config.port,
                 yaw_id=self.config.yaw_id,
                 pitch_id=self.config.pitch_id,
@@ -873,20 +1171,31 @@ class DemoRuntime:
                 features=self.features,
                 camera=self.camera,
                 audio_mapping=self.audio_mapping,
+                audio_capture=self.audio_capture,
                 control=self.control,
                 axis_limits=self.axis_limits,
                 audio=self.audio_processing,
                 vision=self.vision_processing,
-            ),
         )
+        try:
+            save_settings(self.config.settings_path, settings)
+        except (OSError, ValueError) as exc:
+            self.halt_motion()
+            self.log('settings_save_error', {'error': str(exc), 'path': str(self.config.settings_path)})
+            raise RuntimeError('配置保存失败，自动转动已暂停；原配置文件保留，请检查磁盘后重新保存') from exc
 
     def log(self, event: str, detail: dict[str, Any] | None = None) -> None:
-        self.events.append({"ts": round(time.time(), 3), "event": event, "detail": detail or {}})
-        self.events = self.events[-80:]
+        row = self.journal.record(event, detail, level='error' if event.endswith(('_error', '_failure')) else 'info')
+        with self._events_lock:
+            self.events.append(row)
+            self.events = self.events[-80:]
 
+    @_serialized
     def session(self) -> dict[str, Any]:
         return {
             "running": self.running,
+            "head_presets": {name: asdict(self.logic.pose_for_audio_direction(name))
+                             for name in ('left_back', 'left_front', 'center', 'right_front', 'right_back')},
             "simulated": self.config.simulated,
             "servo": {
                 "port": self.config.port,
@@ -901,24 +1210,37 @@ class DemoRuntime:
             "features": asdict(self.features),
             "camera": asdict(self.camera),
             "audio_config": asdict(self.audio_mapping),
+            "audio_capture": asdict(self.audio_capture),
             "control": asdict(self.control),
             "axis_limits": asdict(self.axis_limits),
             "audio_processing": asdict(self.audio_processing),
             "vision_processing": asdict(self.vision_processing),
         }
 
+    @_serialized
     def update_servo_config(self, *, yaw_id: int | None, pitch_id: int) -> dict[str, Any]:
+        validate_servo_ids(yaw_id, pitch_id)
+        self._invalidate_motion_context()
         self.config.yaw_id = yaw_id
         self.config.pitch_id = int(pitch_id)
+        self._motion_pose_synced = False
         self.logic = self._make_logic()
-        self.head = self._make_head()
+        self._rebuild_head()
         self._persist_settings()
         self.log("servo_config", {"yaw_id": yaw_id, "pitch_id": pitch_id})
         return self.session()
 
+    @_serialized
     def update_hardware_config(self, *, port: str | None, yaw_id: int | None, pitch_id: int) -> dict[str, Any]:
+        validate_servo_ids(yaw_id, pitch_id)
+        self.halt_motion()
+        self._motion_pose_synced = False
         old_port = self.config.port
-        self.config.port = choose_servo_port(port or self.config.port)
+        estimated = getattr(self.head, "estimated_pose", self.pose)
+        if hasattr(self.head, "stop"):
+            self.head.stop()
+        self.pose = self.logic.clamp_pose(estimated)
+        self.config.port = (port or self.config.port) if self.config.simulated else choose_servo_port(port or self.config.port)
         self.config.yaw_id = yaw_id
         self.config.pitch_id = int(pitch_id)
         self.bus.close()
@@ -926,22 +1248,44 @@ class DemoRuntime:
             self.bus = SimulatedBus()
         elif self.config.port != old_port:
             self.bus = ZPServoBus(self.config.port)
+        self._attach_bus_diagnostics()
         self.logic = self._make_logic()
         self.head = self._make_head()
         self._persist_settings()
         self.log("hardware_config", {"port": self.config.port, "yaw_id": yaw_id, "pitch_id": pitch_id})
         return self.session()
 
+    @_serialized
     def update_direction_config(self, payload: DirectionConfigRequest) -> dict[str, Any]:
-        self.direction = DirectionConfig(
+        updated = DirectionConfig(
             yaw_left_sign=payload.yaw_left_sign,
             pitch_up_sign=payload.pitch_up_sign,
             manual_step=payload.manual_step,
         )
+        if updated != self.direction:
+            self._invalidate_motion_context()
+        self.direction = updated
         self.logic = self._make_logic()
         self._persist_settings()
         self.log("direction_config", asdict(self.direction))
         return self.session()
+
+    def _invalidate_motion_context(self, *, require_feedback=True):
+        """Revoke an old-coordinate command before a configuration transition."""
+        generation = self.halt_motion()
+        self.pose = getattr(self.head, 'estimated_pose', self.pose)
+        if require_feedback:
+            self._motion_pose_synced = False
+        self._dominant_sound.reset()
+        self._dominant_context = None
+        self._reset_audio_seek()
+        self._reset_reframe()
+        self._smoothed_error = None
+        self._last_visual_identity = None
+        self._image_velocity.reset()
+        for trigger in self._visual_triggers.values():
+            trigger.reset()
+        return generation
 
     def _clear_visual_state(self, status: VisionStatus) -> None:
         """Drop cached visual data, reframe state and speaker lock.
@@ -950,24 +1294,40 @@ class DemoRuntime:
         on, so neither transition leaves stale data behind for the dashboard.
         """
         self.last_frame_b64 = ""
+        self.last_stereo_frame_b64 = ""
         self.last_target = None
         self.last_targets = []
         self.last_body_target = None
         self.last_vision_status = status
+        self.last_focus_previews = {}
+        self.last_eye_frames = {}
+        self.last_eye_targets = {}
+        self.last_binocular = {}
+        self._last_control_eye = ""
+        self._last_coordinate_frame = ""
         self._reset_reframe()
         self._reset_speaker_lock()
         self._reset_silent_visual_candidate()
 
+    @_serialized
     def update_feature_config(self, payload: FeatureConfigRequest) -> dict[str, Any]:
         camera_was_enabled = self.features.camera_enabled
-        self.features = FeatureConfig(
+        updated = FeatureConfig(
             audio_enabled=payload.audio_enabled,
             visual_enabled=payload.visual_enabled,
             camera_enabled=payload.camera_enabled,
         )
+        was_running = self.running
+        generation = None
+        if updated != self.features:
+            # A mode switch revokes the old goal immediately. It can retain the
+            # user's Run intent, but the new mode must supply fresh evidence.
+            generation = self._invalidate_motion_context(require_feedback=False)
+        self.features = updated
         camera_source = self.camera.device_name or "off"
-        if not self.features.camera_enabled and hasattr(self.vision, "stop"):
-            self.vision.stop()
+        if not self.features.camera_enabled:
+            if hasattr(self.vision, "stop"):
+                self.vision.stop()
             self._clear_visual_state(VisionStatus(False, camera_source, "camera off", fps=0.0))
         elif self.features.camera_enabled and not camera_was_enabled:
             # Switching the camera back on. The capture itself restarts lazily
@@ -978,10 +1338,20 @@ class DemoRuntime:
             # WebSocket), which would leave it reporting a stopped camera.
             self._clear_visual_state(VisionStatus(False, camera_source, "starting", fps=0.0))
         self._persist_settings()
+        if generation is not None:
+            with self._intent_lock:
+                if generation == self._start_generation and not self._motion_fault:
+                    self.running = was_running and (updated.audio_enabled or
+                                                     updated.visual_enabled and updated.camera_enabled)
         self.log("feature_config", asdict(self.features))
         return self.session()
 
+    @_serialized
     def update_camera_config(self, payload: CameraConfigRequest) -> dict[str, Any]:
+        # Replacing a camera invalidates the old frame/target coordinate system.
+        # Cancel its queued motion before replacing any capture or detector.
+        self.halt_motion()
+        self._stereo_preflight={'status':'not_checked','message':'摄像头配置或对齐参数已更新；下次开始前重新检查'}
         if hasattr(self.vision, "stop"):
             self.vision.stop()
         self.camera = CameraConfig(
@@ -994,6 +1364,18 @@ class DemoRuntime:
             scrfd_model_path=(payload.scrfd_model_path or "").strip() or None,
             scrfd_threshold=payload.scrfd_threshold,
             scrfd_input_size=payload.scrfd_input_size,
+            capture_backend=payload.capture_backend,
+            input_fps=payload.input_fps,
+            usb_vid=payload.usb_vid,
+            usb_pid=payload.usb_pid,
+            tracking_eye=payload.tracking_eye,
+            left_rotation=payload.left_rotation,
+            right_rotation=payload.right_rotation,
+            multi_scale_search=payload.multi_scale_search,
+            focus_assist=payload.focus_assist,
+            preview_jpeg_quality=payload.preview_jpeg_quality,
+            stereo_calibration_path=payload.stereo_calibration_path,
+            stereo_geometry_enabled=payload.stereo_geometry_enabled,
         )
         self.vision = self._make_vision()
         self.last_frame_b64 = ""
@@ -1008,23 +1390,39 @@ class DemoRuntime:
         self.log("camera_config", asdict(self.camera))
         return self.session()
 
+    @_serialized
     def update_audio_config(self, payload: AudioMappingConfigRequest) -> dict[str, Any]:
-        self.audio_mapping = AudioMappingConfig(swap_channels=payload.swap_channels)
+        updated = AudioMappingConfig(swap_channels=payload.swap_channels)
+        if updated != self.audio_mapping:
+            self._invalidate_motion_context()
+        self.audio_mapping = updated
         self._persist_settings()
         self.log("audio_config", asdict(self.audio_mapping))
         return self.session()
 
+    @_serialized
+    def update_audio_capture_config(self, payload: AudioCaptureConfigRequest):
+        updated = AudioCaptureConfig(**payload.model_dump())
+        self._invalidate_motion_context()
+        self.audio.stop()
+        self.audio_capture = updated
+        self.audio = self._make_audio()
+        self._persist_settings()
+        return self.session()
+
+    @_serialized
     def update_control_config(self, payload: ControlConfigRequest) -> dict[str, Any]:
-        self.control = ControlConfig(
-            control_profile=payload.control_profile,
-            motor_guard_ms=payload.motor_guard_ms,
-        )
+        self._invalidate_motion_context()
+        self.control = ControlConfig(**payload.model_dump())
+        self._rebuild_head()
         self.motion_interval_s = self._profile_params()["motion_interval_s"]
         self._persist_settings()
         self.log("control_config", asdict(self.control))
         return self.session()
 
+    @_serialized
     def update_axis_limits_config(self, payload: AxisLimitsConfigRequest) -> dict[str, Any]:
+        self.halt_motion()
         self.axis_limits = AxisLimitsConfig(
             yaw_min=payload.yaw_min,
             yaw_center=payload.yaw_center,
@@ -1034,14 +1432,16 @@ class DemoRuntime:
             pitch_max=payload.pitch_max,
         )
         self.logic = self._make_logic()
-        self.head = self._make_head()
+        self._rebuild_head()
+        self._motion_pose_synced = False
         self.pose = self.logic.clamp_pose(self.pose)
         self._persist_settings()
         self.log("axis_limits_config", asdict(self.axis_limits))
         return self.session()
 
+    @_serialized
     def update_audio_processing_config(self, payload: AudioProcessingConfigRequest) -> dict[str, Any]:
-        self.audio_processing = AudioProcessingConfig(
+        updated = AudioProcessingConfig(
             vad_enabled=payload.vad_enabled,
             audio_confidence_threshold=payload.audio_confidence_threshold,
             speech_confidence_threshold=payload.speech_confidence_threshold,
@@ -1050,18 +1450,44 @@ class DemoRuntime:
             denoise_enabled=payload.denoise_enabled,
             denoise_dry_mix=payload.denoise_dry_mix,
             denoise_output_dir=payload.denoise_output_dir or "denoise_output",
-            recording_enabled=True,
+            recording_enabled=payload.recording_enabled,
             use_denoised_for_localization=payload.use_denoised_for_localization,
         )
-        self.state_machine = self._make_state_machine()
+        previous = self.audio_processing
+        vad_changed = updated.vad_enabled != previous.vad_enabled
+        policy_fields = ('vad_enabled', 'audio_confidence_threshold', 'speech_confidence_threshold',
+                         'doa_confidence_threshold', 'required_audio_hits', 'denoise_enabled',
+                         'denoise_dry_mix', 'use_denoised_for_localization')
+        policy_changed = any(getattr(updated, k) != getattr(previous, k) for k in policy_fields)
+        if policy_changed:
+            self._invalidate_motion_context()
+        self.audio_processing = updated
+        if policy_changed:
+            self.state_machine = self._make_state_machine()
+        if isinstance(self.audio, WasapiArrayAudio):
+            self.audio._output_dir = Path(self.audio_processing.denoise_output_dir) if self.audio_processing.denoise_output_dir else None
+            self.audio.set_recording_enabled(self.audio_processing.recording_enabled)
+            if vad_changed:
+                self.audio.set_vad_enabled(self.audio_processing.vad_enabled)
         self._persist_settings()
         self.log("audio_processing_config", asdict(self.audio_processing))
         return self.session()
 
+    def _set_vision_selection_policy(self):
+        if not hasattr(self.vision,'set_guided_mode'):return
+        strategy=self.vision_processing.tracking_strategy
+        if strategy=='visual_priority':
+            self.vision.set_guided_mode(True,visual_priority=True,
+                sector_half_width_deg=self.vision_processing.audio_sector_half_width_deg)
+        else:self.vision.set_guided_mode(strategy=='audio_visual_guided')
+
+    @_serialized
     def update_vision_processing_config(self, payload: VisionProcessingConfigRequest) -> dict[str, Any]:
+        self._invalidate_motion_context()
         self.vision_processing = VisionProcessingConfig(
             active_speaker_enabled=payload.active_speaker_enabled,
             tracking_strategy=payload.tracking_strategy,
+            audio_sector_half_width_deg=payload.audio_sector_half_width_deg,
             asd_backend=payload.asd_backend,
             speaker_lock_policy=payload.speaker_lock_policy,
             target_offset_x_norm=payload.target_offset_x_norm,
@@ -1088,16 +1514,24 @@ class DemoRuntime:
         )
         self.asd_backend = make_asd_backend(self.vision_processing.asd_backend)
         self._reset_speaker_lock()
+        self._set_vision_selection_policy()
         self._reset_silent_visual_candidate()
         self.state_machine = self._make_state_machine()
         self._persist_settings()
         self.log("vision_processing_config", asdict(self.vision_processing))
         return self.session()
 
+    @_serialized
     def snapshot(self, *, include_frame: bool = True) -> dict[str, Any]:
         mode = DemoMode.REFRAME_VISUAL.value if self._reframe_active else self.last_state.mode.value
         audio_comparison = self.audio.comparison_metrics() if hasattr(self.audio, "comparison_metrics") else None
+        ticks = list(self._control_times)
+        tick_hz = (len(ticks) - 1) / (ticks[-1] - ticks[0]) if len(ticks) > 1 and ticks[-1] > ticks[0] else 0
         return {
+            "algorithm_revision": "R43",
+            "servo_connection": {'port':self.config.port,'yaw_id':self.config.yaw_id,
+                'pitch_id':self.config.pitch_id,'discovery':dict(self._servo_discovery)},
+            "stereo_preflight": dict(self._stereo_preflight),
             "running": self.running,
             "mode": mode,
             "strategy": self.vision_processing.tracking_strategy,
@@ -1116,6 +1550,13 @@ class DemoRuntime:
             "features": asdict(self.features),
             "pose": asdict(self.pose),
             "audio": {
+                "capture": self.audio.capture_metrics() if hasattr(self.audio, "capture_metrics") else None,
+                "raw_observation": {
+                    **asdict(self.last_raw_audio),
+                    "direction": self.last_raw_audio.direction.value,
+                    "age_s": max(0.,time.perf_counter()-self.last_raw_audio.observed_monotonic) if self.last_raw_audio.observed_monotonic else None,
+                    "scope": "acoustic observation before motor suppression; diagnostic only",
+                },
                 "direction": self.last_audio.direction.value,
                 "confidence": round(self.last_audio.confidence, 3),
                 "tdoa_s": round(self.last_audio.tdoa_s, 6),
@@ -1126,11 +1567,31 @@ class DemoRuntime:
                 "peak_ratio": round(self.last_audio.peak_ratio, 3),
                 "noise_state": self.last_audio.noise_state,
                 "motor_suppressed": self.last_audio.motor_suppressed,
+                "motion_context": dict(self._audio_motion_context),
+                "steering": {"steps":self._audio_seek_steps,"stop_reason":self._audio_seek_stop_reason,
+                    "visual_primary":bool(self.features.visual_enabled and self.last_state.target_confirmed),
+                    "actuator_wait":bool(time.time()<self.motor_guard_until_s and not self.features.visual_enabled)},
+                "core_source": self._core_sound_status(),
+                "azimuth_std_deg": self.last_audio.azimuth_std_deg,
+                "temporal_stability": self.last_audio.temporal_stability,
+                "speech_backend":self.last_audio.speech_backend,
+                "age_s":max(0.,time.perf_counter()-self.last_audio.observed_monotonic) if self.last_audio.observed_monotonic else None,
                 "comparison": audio_comparison,
                 "processing": asdict(self.audio_processing),
                 "status": asdict(self.audio.status()),
             },
             "visual": {
+                "frame_included": include_frame,
+                "capture": self.vision.capture_metrics() if hasattr(self.vision, "capture_metrics") else None,
+                "stereo_frame": self.last_stereo_frame_b64 if include_frame else "",
+                "focus_previews": self.last_focus_previews if include_frame else {},
+                "eye_frames": self.last_eye_frames if include_frame else {},
+                "eye_targets": {eye: [asdict(t) for t in targets] for eye, targets in self.last_eye_targets.items()},
+                "binocular": self.last_binocular,
+                "fixation": fixation_overlay(self.last_target,self.last_eye_targets,
+                    (self.last_frame_width,self.last_frame_height),
+                    offsets=(self.vision_processing.target_offset_x_norm,self.vision_processing.target_offset_y_norm),
+                    fresh=0 <= time.perf_counter()-self.last_binocular.get('sample_captured_monotonic',0) <= .75),
                 "visible": self.last_target is not None,
                 "locked": self.last_state.target_confirmed,
                 "target": asdict(self.last_target) if self.last_target else None,
@@ -1140,6 +1601,8 @@ class DemoRuntime:
                 "frame_width": self.last_frame_width,
                 "frame_height": self.last_frame_height,
                 "processing": asdict(self.vision_processing),
+                "approach": dict(self._visual_approach),
+                "control": dict(self._visual_control),
                 "status": asdict(self.last_vision_status) if self.last_vision_status else None,
                 "specific_speaker_detected": self.locked_speaker_id is not None,
                 "locked_speaker_id": self.locked_speaker_id,
@@ -1149,6 +1612,11 @@ class DemoRuntime:
                 "asd_backend_status": asdict(self.asd_backend.status),
             },
             "events": self.events[-20:],
+            "diagnostics": self.journal.snapshot(),
+            "motion_health": {'fault': self._motion_fault, 'pose_synced': self._motion_pose_synced,
+                              'feedback': dict(self._feedback), 'position_kind': 'pose is commanded; feedback contains measured positions'},
+            "motion": self.head.metrics() if hasattr(self.head, "metrics") else {"enabled": False},
+            "control_loop": {"background": self.control_loop_active, "target_hz": 30, "measured_hz": round(tick_hz, 3)},
         }
 
     def scan(self, ids: list[int]) -> list[int]:
@@ -1205,14 +1673,44 @@ class DemoRuntime:
         self.log("servo_read_raw", result)
         return result
 
-    def direct_servo_move(self, *, servo_id: int, position: int, time_ms: int, arm: bool) -> dict[str, Any]:
+    @_motion_serialized
+    def direct_servo_move(self, *, servo_id: int, position: int, time_ms: int, arm: bool, generation=None) -> dict[str, Any]:
         servo_id = int(servo_id)
-        position = max(500, min(2500, int(position)))
+        axis = self.logic.yaw if servo_id == self.config.yaw_id else self.logic.pitch if servo_id == self.config.pitch_id else None
+        if axis is None:
+            raise ValueError('Direct movement requires a configured yaw or pitch servo ID')
+        position = int(position)
+        if not axis.minimum <= position <= axis.maximum:
+            raise ValueError(f'Servo {servo_id} target must be within configured range {axis.minimum}–{axis.maximum}')
         time_ms = max(20, min(10000, int(time_ms)))
-        if arm:
-            self.bus.move(servo_id, position, time_ms, force_arm=True)
+        self._check_motion_generation(generation)
+        # Diagnostic raw-position writes must not bypass the checks used by
+        # ordinary arrows. `arm=False` means no torque enable, not no feedback.
+        if not self.config.simulated and isinstance(self.bus,ZPServoBus):
+            if self.running:raise RuntimeError('Stop automatic motion before a direct servo command')
+            if hasattr(self.head,'stop'):self.head.stop()
+            if hasattr(self.head,'metrics') and self.head.metrics().get('worker_active'):
+                raise RuntimeError('Previous motion worker has not stopped; direct command rejected')
+            self._motion_pose_synced=False
+            self.bus.connect()
+            session=self.bus.motion_session()
+            with self.bus.guard_motion_session(session):
+                before=self.bus.read_position(servo_id)
+                if before is None:raise RuntimeError(f'Servo {servo_id} has no position feedback; motion remains stopped')
+                if not axis.minimum<=before<=axis.maximum:
+                    raise RuntimeError(f'Servo {servo_id} is outside configured limits; calibrate before motion')
+                if arm:self.bus.activate_axis(axis,expected_position=before)
+                elif self.bus.read_mode(servo_id)!=1:
+                    raise RuntimeError(f'Servo {servo_id} mode is unknown or not 1; direct command rejected')
+                self._check_motion_generation(generation)
+                # Activation already happened once, when requested. No second
+                # force-arm can invalidate its post-enable position check.
+                self.bus.move_position_only(servo_id,position,time_ms)
+        elif arm:
+            self.bus.move(servo_id, position, time_ms, force_arm=False)
         else:
             self.bus.move_position_only(servo_id, position, time_ms)
+        self._check_motion_generation(generation)
         result = {"servo_id": servo_id, "position": position, "time_ms": time_ms, "arm": bool(arm)}
         self.log("servo_direct_move", result)
         return result
@@ -1315,14 +1813,132 @@ class DemoRuntime:
         )
         return result
 
-    def move(self, pose: HeadPose, time_ms: int, *, source: str = "manual_move") -> HeadPose:
+    @_motion_serialized
+    def discover_servo_port(self, *, generation=None):
+        """Find the adapter using fresh configured-ID replies, without activation."""
+        self._check_motion_generation(generation)
+        if self.running:raise RuntimeError('Stop motion before searching for the servo adapter')
+        if hasattr(self.head,'stop'):self.head.stop()
+        candidates=servo_port_candidates()[:8]
+        trials=[];opened=[];accepted=[]
+        try:
+            for candidate in candidates:
+                self._check_motion_generation(generation)
+                bus=self.bus if candidate.device.casefold()==str(self.config.port).casefold() else ZPServoBus(candidate.device)
+                if bus is not self.bus:opened.append(bus)
+                readings={};error=''
+                try:
+                    for sid in {sid for sid in (self.config.yaw_id,self.config.pitch_id) if sid is not None}:
+                        readings[str(sid)]=bus.read_position(sid)
+                except Exception as exc:error=str(exc)
+                identified=bool(readings) and all(v is not None for v in readings.values()) and not error
+                trials.append(dict(**asdict(candidate),positions=readings,error=error,identified=identified))
+                if identified:accepted.append((candidate,bus))
+            preferred=[item for item in accepted if item[0].device.casefold()==str(self.config.port).casefold()]
+            selected=preferred[0] if preferred else accepted[0] if len(accepted)==1 else None
+            self._check_motion_generation(generation)
+            if selected:
+                candidate,bus=selected
+                if bus is not self.bus:
+                    self.bus.close();self.bus=bus;opened.remove(bus)
+                    self.config.port=candidate.device;self._attach_bus_diagnostics()
+                    self.head=self._make_head()
+                self._motion_pose_synced=False
+                self._servo_discovery=dict(ok=True,reason='configured_ids_replied',port=candidate.device,
+                    device_name=candidate.description,hardware_id=candidate.hardware_id,queries_only=True,trials=trials)
+                self._persist_settings()
+            else:
+                reason='multiple_matching_adapters' if len(accepted)>1 else 'configured_ids_not_both_replying'
+                self._servo_discovery=dict(ok=False,reason=reason,port=self.config.port,queries_only=True,trials=trials)
+            self.log('servo_port_discovery',self._servo_discovery)
+            return dict(self._servo_discovery)
+        finally:
+            for bus in opened:bus.close()
+
+    @_motion_serialized
+    def sync_motion_pose(self, *, only_axis: str | None = None, generation=None):
+        """Read the assembled head before enabling motion; never assume 1500."""
+        if self.config.simulated:
+            return
+        self.running=False
+        # Re-enumerate an unavailable adapter before startup/manual feedback.
+        # Never replace an open session underneath a trajectory.
+        ports=servo_port_candidates()
+        if ports:
+            present=any(p.device.casefold()==str(self.config.port).casefold() for p in ports)
+            if not present and (self.config.port is not None or not self.bus.connected):
+                self.discover_servo_port(generation=generation)
+        if only_axis not in (None, "yaw", "pitch"):
+            raise ValueError("Unknown head axis")
+        self._motion_pose_synced = False
+        self.running = False
+        previous = self.head
+        if hasattr(previous, "stop"):
+            previous.stop()
+        values = asdict(self.pose)
+        axes = [(axis, sid) for axis, sid in (("yaw", self.config.yaw_id), ("pitch", self.config.pitch_id))
+                if only_axis is None or only_axis == axis]
+        errors = []
+        for attempt in range(2):
+            errors = []
+            for axis, sid in axes:
+                self._check_motion_generation(generation)
+                if sid is None:
+                    if only_axis == axis:
+                        errors.append(f"No servo configured for {axis}")
+                    continue
+                value = self.bus.read_position(sid)
+                self._check_motion_generation(generation)
+                valid = value is not None and getattr(self.axis_limits, axis + '_min') <= value <= getattr(self.axis_limits, axis + '_max')
+                self._feedback[sid] = dict(position=value, ts=time.time(), valid=valid)
+                if value is None:
+                    errors.append(f"Servo {sid} has no position feedback; motion remains stopped")
+                elif not valid:
+                    errors.append(f"Servo {sid} is outside configured limits; calibrate before motion")
+                else:
+                    values[axis] = value
+            if not errors:
+                break
+            # One stopped-session recovery only. Re-read ALL requested axes;
+            # never reuse a partial success from the old serial session.
+            if attempt == 0 and self.bus.connected and all('feedback' in e for e in errors):
+                self.log('motion_readonly_recovery', {'errors': errors, 'only_axis': only_axis})
+                try:
+                    self.bus.reconnect_readonly()
+                    continue
+                except Exception as exc:
+                    errors.append(str(exc))
+            break
+        self._check_motion_generation(generation)
+        if errors:
+            with self._intent_lock:
+                self._check_motion_generation(generation)
+                fault = '; '.join(errors)
+                self._motion_fault = fault
+            self.log('motion_sync_error', {'error': fault, 'feedback': self._feedback, 'only_axis': only_axis})
+            raise RuntimeError(fault)
+        # Commit only the current request's feedback. This lock covers state
+        # construction only; the blocking reads and stop/join happen above.
+        with self._intent_lock:
+            self._check_motion_generation(generation)
+            self.pose = HeadPose(**values)
+            self.head = self._make_head(only_axis=only_axis)
+            self._motion_pose_synced = only_axis is None
+            self._motion_fault = ''
+            self._feedback_misses.clear()
+        self.log("motion_pose_synced", {**values, "only_axis": only_axis})
+
+    @_motion_serialized
+    def move(self, pose: HeadPose, time_ms: int, *, source: str = "manual_move", generation=None) -> HeadPose:
+        if self._motion_fault and source == 'auto_move':
+            raise RuntimeError(self._motion_fault)
+        if source == 'auto_move' and not self.running:
+            raise MotionRequestCancelled('自动动作已被停止，未提交旧目标')
+        if not self._motion_pose_synced:
+            self.sync_motion_pose(generation=generation)
         safe_pose = self.logic.clamp_pose(pose)
         previous_pose = self.pose
-        self.head.move_to(safe_pose, time_ms=time_ms, current=previous_pose)
-        self.pose = safe_pose
-        now_s = time.time()
-        self.last_motion_s = now_s
-        self.motor_guard_until_s = now_s + max(0, int(time_ms)) / 1000.0 + self.control.motor_guard_ms / 1000.0
+        self._submit_pose(safe_pose, time_ms=time_ms, current=previous_pose, generation=generation)
         changed_axes = []
         if previous_pose.yaw != safe_pose.yaw:
             changed_axes.append("yaw")
@@ -1340,33 +1956,59 @@ class DemoRuntime:
         )
         return safe_pose
 
-    def jog(self, direction: str, amount: int | None, time_ms: int) -> HeadPose:
+    @_motion_serialized
+    def jog(self, direction: str, amount: int | None, time_ms: int, *, generation=None) -> HeadPose:
+        name = str(direction).strip().lower()
+        if name not in ("left", "right", "up", "down"):
+            raise ValueError("direction must be left, right, up, or down")
+        if not self.config.simulated:
+            # A manual arrow addresses one measured axis. Never enable or
+            # move an unavailable second servo to test the working one.
+            self.sync_motion_pose(only_axis="pitch" if name in ("up", "down") else "yaw", generation=generation)
         target = self.logic.jog(self.pose, direction, amount)
         safe_pose = self.logic.clamp_pose(target)
-        self.head.move_to(safe_pose, time_ms=time_ms, current=self.pose)
-        self.pose = safe_pose
-        now_s = time.time()
-        self.last_motion_s = now_s
-        self.motor_guard_until_s = now_s + max(0, int(time_ms)) / 1000.0 + self.control.motor_guard_ms / 1000.0
+        self._submit_pose(safe_pose, time_ms=time_ms, current=self.pose, generation=generation)
         self.log("manual_jog", {"direction": direction, **asdict(safe_pose)})
         return safe_pose
+
+    def _core_sound_status(self):
+        return {**self._dominant_sound.snapshot(),
+                'motion_authorized': self._core_motion_authorized,
+                'motion_reason': self._core_motion_reason}
 
     def tick(self, *, include_frame: bool = True) -> dict[str, Any]:
         if not self._tick_lock.acquire(blocking=False):
             return self.snapshot(include_frame=include_frame)
         try:
             return self._tick_locked(include_frame=include_frame)
+        except MotionRequestCancelled:
+            # Cancellation is an expected control decision, not an IO fault.
+            return self.snapshot(include_frame=include_frame)
         finally:
             self._tick_lock.release()
 
     def _tick_locked(self, *, include_frame: bool = True) -> dict[str, Any]:
+        generation = self.motion_generation()
         now = time.time()
+        if not self.running:
+            self._image_velocity.reset()
+            self._visual_control = dict(reason='stopped', automatic=False,
+                                        pitch_enabled=self.vision_processing.visual_pitch_enabled)
+        if getattr(self.head, "is_moving", False):
+            self.motor_guard_until_s = max(self.motor_guard_until_s, now + self.control.motor_guard_ms / 1000 + .06)
         raw_audio = apply_audio_channel_mapping(
             self.audio.read_estimate(),
             swap_channels=self.audio_mapping.swap_channels,
         )
-        self.last_audio = with_motor_suppression(raw_audio, suppressed=now < self.motor_guard_until_s)
-        if not self.audio_processing.vad_enabled and not self.last_audio.motor_suppressed:
+        self.last_raw_audio = raw_audio
+        self.last_audio,self._audio_motion_context = qualify_audio_during_motion(
+            raw_audio,active=now < self.motor_guard_until_s)
+        guided=self.vision_processing.tracking_strategy in ('audio_visual_guided','visual_priority')
+        if (not isinstance(self.audio, WasapiArrayAudio)
+                and not self.audio_processing.vad_enabled and not self.last_audio.motor_suppressed
+                and getattr(self.audio, "localization_ready", True)):
+            # Legacy stereo-only override. The four-channel adapter already
+            # owns VAD, direction quality and PCM timestamps, even with VAD off.
             self.last_audio = classify_audio_direction(
                 self.last_audio.tdoa_s,
                 self.last_audio.energy,
@@ -1377,11 +2019,62 @@ class DemoRuntime:
                 noise_state="vad_disabled",
                 azimuth_deg=self.last_audio.azimuth_deg,
             )
+        dominant_mode = self.audio_capture.localization_mode == 'ear_pair' and self.audio_capture.ear_mapping_confirmed
+        core_context = (generation, self.features.audio_enabled, self.features.visual_enabled,
+            self.direction.yaw_left_sign, self.axis_limits.yaw_min, self.axis_limits.yaw_max, dominant_mode,
+            id(self.audio), id(self.head), tuple(sorted(asdict(self.audio_capture).items())),
+            self.audio_mapping.swap_channels, self.control.control_profile,
+            self.vision_processing.tracking_strategy, self.vision_processing.active_speaker_enabled)
+        if core_context != self._dominant_context:
+            if self._core_motion_authorized and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
+                self.head.cancel()
+                self.pose = getattr(self.head, 'estimated_pose', self.pose)
+            self._dominant_sound.reset()
+            self._core_motion_authorized = False
+            self._core_motion_reason = 'awaiting_current_core_evidence'
+            self._dominant_context = core_context
+        if dominant_mode and self.features.audio_enabled:
+            parameters = self._profile_params()
+            self._dominant_sound.update(self.last_audio, now=time.perf_counter(),
+                yaw=getattr(self.head, 'estimated_pose', self.pose).yaw,
+                units_per_degree=float(parameters['audio_seek_max_step'])/float(parameters['audio_seek_full_scale_deg']),
+                left_sign=self.direction.yaw_left_sign, yaw_min=self.axis_limits.yaw_min,
+                yaw_max=self.axis_limits.yaw_max, command_window=int(parameters['audio_seek_window']))
+        if hasattr(self.vision,'set_audio_guidance'):
+            # Only a fresh current observation from the selected acoustic track
+            # can guide a face. The stored position never masquerades as speech.
+            current_core = not dominant_mode or self._dominant_sound.live_matches_core
+            guidance = None
+            if guided and self.features.audio_enabled and self.vision_processing.active_speaker_enabled:
+                guidance = self.last_audio
+                if not current_core and self.last_audio.direction != AudioDirection.UNKNOWN:
+                    # Preserve the distinction between enabled-but-unconfirmed
+                    # audio and explicitly disabled audio. No old angle is used.
+                    guidance = replace(self.last_audio, direction=AudioDirection.UNKNOWN,
+                        noise_state='awaiting_core_confirmation')
+            self.vision.set_audio_guidance(guidance)
         control_target = None
         crowded_state = None
+        view_confirming = False
         if self.features.camera_enabled:
             frame = self.vision.read()
             self.last_frame_b64 = frame.jpeg_base64
+            self.last_stereo_frame_b64 = getattr(frame, "stereo_jpeg_base64", "")
+            self.last_focus_previews = getattr(frame, "focus_previews", {})
+            self.last_eye_frames = getattr(frame, "eye_frames", {})
+            self.last_eye_targets = getattr(frame, "eye_targets", {})
+            self.last_binocular = getattr(frame, "binocular", {})
+            control_eye = getattr(frame, "control_eye", "")
+            coordinate_frame=self.last_binocular.get("coordinate_frame", "selected_eye_pixels")
+            view_confirming = self.features.visual_enabled and self.last_binocular.get("selection_reason") in ("confirming_view", "stale_frame", "no_usable_eye")
+            if control_eye != self._last_control_eye:
+                self._last_control_eye = control_eye
+                self._smoothed_error = None
+                self._pitch_error_direction = self._pitch_error_hits = 0
+                self._last_control_detection_sequence = 0
+                self._reset_speaker_lock()
+                self._reset_silent_visual_candidate()
+                self._reset_reframe()
             self.last_frame_width = frame.frame_width
             self.last_frame_height = frame.frame_height
             self.last_targets = list(getattr(frame, "targets", []) or ([] if frame.target is None else [frame.target]))
@@ -1390,7 +2083,19 @@ class DemoRuntime:
                 self.vision_processing.tracking_strategy == "crowded_visual_first"
                 and self.vision_processing.active_speaker_enabled
             )
-            if use_crowded:
+            if guided:
+                self.last_target=frame.target
+                control_target=frame.target
+                selection=self.last_binocular.get('target_selection',{})
+                self.audio_search_allowed=not self.features.visual_enabled or not bool(self.last_binocular.get('people',self.last_targets))
+                if self.features.visual_enabled and self.vision_processing.tracking_strategy=='visual_priority' and selection.get('locked_person_id') is not None:
+                    self.audio_search_allowed=False
+                crowded_state=DemoState(DemoMode.TRACK_SPEAKER if control_target is not None else DemoMode.VISUAL_SCAN,
+                    audio_direction=self.last_audio.direction.value,visual_locked=control_target is not None,
+                    target_label=control_target.label if control_target is not None else '',
+                    last_event=selection.get('switch_reason','audio_guided_lock' if selection.get('mode')=='audio_guided' else 'visual_fallback_lock'),
+                    audio_ready=bool(selection.get('audio_usable',False)),target_confirmed=control_target is not None)
+            elif use_crowded:
                 self.last_targets = self._annotate_crowded_targets(self.last_targets)
                 control_target, crowded_state = self._select_crowded_target(self.last_targets, now)
             elif self.vision_processing.active_speaker_enabled:
@@ -1414,26 +2119,69 @@ class DemoRuntime:
                 self.audio_search_allowed = True
                 self._reset_speaker_lock()
             self.last_vision_status = frame.status
+            actual_spatial=self.last_target is not None and self.last_target.stereo_position is not None
+            actual_bearing=self.last_target is not None and self.last_target.bearing is not None
+            if self.last_binocular.get("calibrated") or self.last_binocular.get("rectification_enabled"):
+                coordinate_frame="rectified_camera_midpoint" if actual_spatial else self.last_target.bearing['frame'] if actual_bearing else "selected_rectified_eye_pixels"
+                self.last_binocular.update(coordinate_frame=coordinate_frame,uses_two_eye_geometry=actual_spatial)
+            if coordinate_frame!=self._last_coordinate_frame:
+                self._last_coordinate_frame=coordinate_frame
+                self._smoothed_error=None
+                self._pitch_error_direction=self._pitch_error_hits=0
+            if not getattr(frame, "control_ready", True):
+                control_target = None
+                crowded_state = None
+                self._smoothed_error = None
+                self._pitch_error_direction = self._pitch_error_hits = 0
         else:
             self.last_frame_b64 = ""
             self.last_target = None
             self.last_targets = []
             self.last_body_target = None
+            self.last_eye_frames = {}
+            self.last_eye_targets = {}
+            self.last_binocular = {}
             self.last_vision_status = VisionStatus(False, self.camera.device_name or "off", "camera off", fps=0.0)
             self.audio_search_allowed = True
             self._reset_speaker_lock()
         audio_for_control = self.last_audio if self.features.audio_enabled else None
+        if not self.features.visual_enabled:
+            # Camera preview is not a permission gate on independent listening.
+            self.audio_search_allowed = True
         target_for_control = control_target if self.features.visual_enabled else None
         self.last_state = (
             crowded_state
             if crowded_state is not None and self.features.visual_enabled
             else self.state_machine.update(audio=audio_for_control, target=target_for_control, now_s=now)
         )
+        if dominant_mode:
+            visual_owner = self.features.visual_enabled and (self.last_state.target_confirmed or not self.audio_search_allowed)
+            if not self.running:
+                self._core_motion_authorized = False
+                self._core_motion_reason = 'stopped'
+            elif visual_owner:
+                if self._core_motion_authorized and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
+                    self.head.cancel()
+                    self.pose = getattr(self.head, 'estimated_pose', self.pose)
+                self._core_motion_authorized = False
+                self._core_motion_reason = 'visual_target_has_priority'
+            elif self._dominant_sound.fresh_core_observation:
+                self._core_motion_authorized = True
+                self._core_motion_reason = 'confirmed_core_motion'
+            elif not self._core_motion_authorized:
+                self._core_motion_reason = 'awaiting_current_core_evidence'
+        acoustic_fallback = (dominant_mode and self.features.audio_enabled and self.audio_search_allowed
+                             and not self.last_state.target_confirmed and self._core_motion_authorized)
         self._reframe_active = False
+        if self.running and (view_confirming or not self.last_state.target_confirmed):
+            self._visual_control = dict(reason='waiting_fresh_frame' if view_confirming else 'waiting_face',
+                automatic=True, pitch_enabled=self.vision_processing.visual_pitch_enabled)
         if self.last_state.audio_ready:
             self._last_reframe_audio_s = now
+        self._record_audio_association(now)
         next_pose = self.pose
         audio_seek_commanded = False
+        dominant_commanded = False
         audio_seek_attempted = False
         reframe_commanded = False
         effective_audio_azimuth = self.last_audio.azimuth_deg
@@ -1444,13 +2192,20 @@ class DemoRuntime:
         audio_seek_abs_azimuth = abs(effective_audio_azimuth)
         audio_seek_direction = self.last_audio.direction.value
         move_time_ms = int(self._profile_params()["move_time_ms"])
-        if self.running:
-            motor_settling = now < self.motor_guard_until_s
+        if self.running and view_confirming and not acoustic_fallback and getattr(self.head, "is_moving", False) and hasattr(self.head, "cancel"):
+            self.head.cancel()
+            self.pose = getattr(self.head, "estimated_pose", self.pose)
+        if self.running and (not view_confirming or acoustic_fallback):
+            visual_tracking = not view_confirming and self.features.visual_enabled and target_for_control is not None and self.last_state.target_confirmed
+            detection_sequence = getattr(frame, "detection_sequence", 0) if self.features.camera_enabled else 0
+            fresh_visual = not detection_sequence or detection_sequence != self._last_control_detection_sequence
+            motor_settling = now < self.motor_guard_until_s and not visual_tracking
             if motor_settling:
                 self._smoothed_error = None
                 self._pitch_error_direction = 0
                 self._pitch_error_hits = 0
-            elif self.features.visual_enabled and target_for_control is not None and self.last_state.target_confirmed:
+            elif visual_tracking and fresh_visual:
+                self._last_control_detection_sequence = detection_sequence
                 error_x, error_y = normalized_center_error(
                     target_for_control,
                     frame_width=frame.frame_width,
@@ -1461,6 +2216,16 @@ class DemoRuntime:
                 if self.vision_processing.visual_mirror_x:
                     error_x = -error_x
                 params = self._profile_params()
+                if self.vision_processing.tracking_strategy=='visual_priority':
+                    fixation=target_for_control.fixation
+                    basis=(fixation['mode'],fixation['anchor_kind'],target_for_control.source_eye if fixation['mode']=='single_eye' else 'both') if fixation else ('legacy',)
+                    identity=(target_for_control.face_id,self._last_coordinate_frame,basis)
+                    if identity!=self._last_visual_identity:
+                        self._smoothed_error=None
+                        self._pitch_error_direction=self._pitch_error_hits=0
+                        for trigger in self._visual_triggers.values():
+                            trigger.reset()
+                    self._last_visual_identity=identity
                 if self._smoothed_error is None:
                     self._smoothed_error = (error_x, error_y)
                 else:
@@ -1471,37 +2236,67 @@ class DemoRuntime:
                     )
                 visual_limits = self._visual_control_params(params)
                 control_error_x = 0.0 if self.vision_processing.visual_yaw_mode == "off" else self._smoothed_error[0]
-                if self.vision_processing.visual_pitch_enabled:
+                if self.vision_processing.visual_pitch_enabled and self.vision_processing.tracking_strategy != 'visual_priority':
                     control_error_y = self._stable_pitch_error(
                         self._smoothed_error[1],
                         deadband=float(visual_limits["pitch_deadband"]),
                     )
-                else:
+                elif not self.vision_processing.visual_pitch_enabled:
                     self._pitch_error_direction = 0
                     self._pitch_error_hits = 0
                     control_error_y = 0.0
-                next_pose = self.logic.apply_visual_error(
-                    self.pose,
-                    control_error_x,
-                    control_error_y,
-                    yaw_deadband=float(visual_limits["yaw_deadband"]),
-                    pitch_deadband=float(visual_limits["pitch_deadband"]),
-                    max_yaw_delta=int(visual_limits["max_yaw_delta"]),
-                    max_pitch_delta=int(visual_limits["max_pitch_delta"]),
-                    min_yaw_delta=int(visual_limits["min_yaw_delta"]),
-                    min_pitch_delta=int(visual_limits["min_pitch_delta"]),
-                )
+                else:
+                    control_error_y = self._smoothed_error[1]
+                if self.vision_processing.tracking_strategy=='visual_priority':
+                    for axis, value in (('yaw', control_error_x), ('pitch', control_error_y)):
+                        command, active_band = self._visual_triggers[axis].update(value,
+                            band=visual_limits[axis+'_deadband'], sequence=detection_sequence or now, now=now)
+                        visual_limits[axis+'_deadband'] = active_band
+                        if axis == 'yaw':
+                            control_error_x = command
+                        else:
+                            control_error_y = command
+                    velocity=self._image_velocity.update((error_x,error_y),
+                        identity=(identity,control_eye),sequence=detection_sequence or now,
+                        observed_at=getattr(frame,'captured_monotonic',0.) or now)
+                    next_pose,self._visual_approach=adaptive_visual_step(self.logic,
+                        getattr(self.head,'estimated_pose',self.pose),self.pose,
+                        (control_error_x,control_error_y),(error_x,error_y),velocity,visual_limits)
+                    move_time_ms=self._visual_approach['move_time_ms']
+                    self._visual_control = dict(reason='image_feedback', automatic=True,
+                        raw_error=[error_x,error_y], filtered_error=list(self._smoothed_error),
+                        command_error=[control_error_x,control_error_y], next_pose=asdict(next_pose),
+                        yaw=self._visual_triggers['yaw'].snapshot(), pitch=self._visual_triggers['pitch'].snapshot(),
+                        pitch_enabled=self.vision_processing.visual_pitch_enabled,
+                        pitch_limit='upper' if next_pose.pitch == self.axis_limits.pitch_max and -self.direction.pitch_up_sign*control_error_y > 0 else
+                                    'lower' if next_pose.pitch == self.axis_limits.pitch_min and -self.direction.pitch_up_sign*control_error_y < 0 else None,
+                        detection_sequence=detection_sequence, deadbands={a:visual_limits[a+'_deadband'] for a in ('yaw','pitch')})
+                    key = str((self._visual_control['yaw']['reason'], self._visual_control['pitch']['reason'], self._visual_control['pitch_limit']))
+                    if key != self._last_visual_log[0] or now - self._last_visual_log[1] >= 1:
+                        self.log('visual_control_decision', self._visual_control)
+                        self._last_visual_log = (key, now)
+                else:
+                    next_pose = self.logic.apply_visual_error(
+                        getattr(self.head, "estimated_pose", self.pose),control_error_x,control_error_y,
+                        yaw_deadband=float(visual_limits["yaw_deadband"]),pitch_deadband=float(visual_limits["pitch_deadband"]),
+                        max_yaw_delta=int(visual_limits["max_yaw_delta"]),max_pitch_delta=int(visual_limits["max_pitch_delta"]),
+                        min_yaw_delta=int(visual_limits["min_yaw_delta"]),min_pitch_delta=int(visual_limits["min_pitch_delta"]))
                 self._reset_audio_seek()
                 self._reset_reframe()
             elif not self.last_state.target_confirmed:
+                self._image_velocity.reset()
+                for trigger in self._visual_triggers.values():
+                    trigger.reset()
                 self._smoothed_error = None
+                self._last_visual_identity=None
+                self._visual_approach={}
                 self._pitch_error_direction = 0
                 self._pitch_error_hits = 0
-            no_visible_person = not self.last_targets
+            no_visible_person = not self.features.visual_enabled or not self.last_targets
             params = self._profile_params()
             visible_acquire_target = (
                 self.last_target
-                if self.last_target is not None
+                if not view_confirming and self.features.visual_enabled and self.last_target is not None
                 and not self.last_state.target_confirmed
                 and self._target_matches_audio_region(self.last_target)
                 and self._target_has_acquire_evidence(self.last_target)
@@ -1513,10 +2308,10 @@ class DemoRuntime:
                 and not self.last_state.target_confirmed
             ):
                 visible_acquire_target = None
-            visual_reframe_available = self.features.visual_enabled and self.features.camera_enabled and (
+            visual_reframe_available = not view_confirming and self.features.visual_enabled and self.features.camera_enabled and (
                 no_visible_person or visible_acquire_target is not None
             )
-            audio_seek_ready = visible_acquire_target is None and (
+            audio_seek_ready = not dominant_mode and self.last_state.audio_ready and not motor_settling and visible_acquire_target is None and (
                 self.last_state.mode == DemoMode.SEEK_VISUAL or (no_visible_person and self.last_state.audio_ready)
                 or self.last_state.mode == DemoMode.AUDIO_SEARCH
             )
@@ -1526,6 +2321,24 @@ class DemoRuntime:
                 if self.last_state.mode == DemoMode.AUDIO_SEARCH
                 else (1 if visual_reframe_available else audio_seek_step_limit)
             )
+            if (dominant_mode and self.features.audio_enabled and self.audio_search_allowed
+                    and not self.last_state.target_confirmed and visible_acquire_target is None):
+                core = self._dominant_sound.snapshot()
+                if not core['locked']:
+                    self._audio_seek_stop_reason = 'collecting_core_direction'
+                elif not self._core_motion_authorized:
+                    self._audio_seek_stop_reason = 'awaiting_current_core_evidence'
+                elif motor_settling:
+                    self._audio_seek_stop_reason = 'finishing_core_motion'
+                else:
+                    next_pose = self.logic.clamp_pose(HeadPose(core['goal_yaw'], self.pose.pitch))
+                    audio_seek_commanded = dominant_commanded = next_pose != self.pose
+                    self._audio_seek_stop_reason = ('core_goal_submitted' if dominant_commanded else
+                        'yaw_limit' if core['goal_yaw'] in (self.axis_limits.yaw_min, self.axis_limits.yaw_max) else
+                        'core_goal_reached' if abs(getattr(self.head, 'estimated_pose', self.pose).yaw-core['goal_yaw'])<=4 else 'finishing_core_motion')
+                    if dominant_commanded:
+                        self._reset_reframe()
+                        move_time_ms = int(params['audio_seek_move_time_ms'])
             if (
                 self.features.audio_enabled
                 and self.audio_search_allowed
@@ -1542,21 +2355,20 @@ class DemoRuntime:
                 if (
                     self._audio_seek_origin_yaw is None
                     or direction_changed
-                    or (
-                        not visual_reframe_available
-                        and (
-                            now - self._audio_seek_started_s > float(params["audio_seek_timeout_s"])
-                            or self._audio_seek_steps >= int(params["audio_seek_max_steps"])
-                        )
-                    )
                 ):
                     self._audio_seek_origin_yaw = self.pose.yaw
                     self._audio_seek_started_s = now
                     self._audio_seek_steps = 0
                     self._last_audio_seek_abs_azimuth = None
                     self._last_audio_seek_direction = ""
+                    self._last_audio_seek_observation = None
                     self._reset_reframe()
+                observation=(self.last_audio.sample_sequence,self.last_audio.observed_monotonic)
+                fresh_observation=(observation[1]>0 and observation!=self._last_audio_seek_observation)
+                self._audio_seek_stop_reason = ""
                 should_move = self._audio_seek_steps < max_audio_seek_steps
+                if not should_move:
+                    self._audio_seek_stop_reason = "step_budget_reached"
                 if should_move and self._last_audio_seek_abs_azimuth is not None and self._audio_seek_steps > 0:
                     same_direction = audio_seek_direction == self._last_audio_seek_direction
                     diverged = same_direction and audio_seek_abs_azimuth > self._last_audio_seek_abs_azimuth + 6.0
@@ -1564,6 +2376,7 @@ class DemoRuntime:
                         same_direction
                         and abs(audio_seek_abs_azimuth - self._last_audio_seek_abs_azimuth) < 6.0
                         and self._audio_seek_steps >= 1
+                        and not fresh_observation
                     )
                     crossed_center = (
                         not same_direction
@@ -1572,6 +2385,8 @@ class DemoRuntime:
                         and audio_seek_abs_azimuth <= float(params["audio_deadband_deg"]) * 1.5
                     )
                     should_move = not diverged and not crossed_center and not same_direction_repeat
+                    if not should_move:
+                        self._audio_seek_stop_reason = "direction_diverged" if diverged else "crossed_center" if crossed_center else "awaiting_new_acoustic_observation"
                 if should_move:
                     window = int(params["audio_seek_window"])
                     seek_min_yaw = self._audio_seek_origin_yaw - window
@@ -1588,12 +2403,14 @@ class DemoRuntime:
                     )
                     audio_seek_attempted = True
                     audio_seek_commanded = next_pose != self.pose
+                    if not audio_seek_commanded:
+                        self._audio_seek_stop_reason = "yaw_limit" if next_pose.yaw in (self.axis_limits.yaw_min,self.axis_limits.yaw_max) else "sound_centered_or_window_limit"
                     if audio_seek_commanded:
                         self._reset_reframe()
                         move_time_ms = int(params["audio_seek_move_time_ms"])
                 if audio_seek_attempted and not audio_seek_commanded and visual_reframe_available:
                     self._audio_seek_steps = max(self._audio_seek_steps, 1)
-            elif self.last_state.mode == DemoMode.LISTENING:
+            elif self.last_state.mode == DemoMode.LISTENING and not dominant_mode:
                 self._reset_audio_seek()
                 self._reset_reframe()
             if self.last_state.target_confirmed:
@@ -1645,14 +2462,25 @@ class DemoRuntime:
                     move_time_ms = int(params["reframe_move_time_ms"])
             elif not audio_recent_for_reframe:
                 self._reset_reframe()
-            if next_pose != self.pose and now - self.last_motion_s >= self.motion_interval_s:
-                self.move(next_pose, time_ms=move_time_ms, source="auto_move")
+            motion_interval = 0.05 if visual_tracking and self.control.smooth_motion else self.motion_interval_s
+            if next_pose != self.pose and now - self.last_motion_s >= motion_interval:
+                self.move(next_pose, time_ms=move_time_ms, source="auto_move", generation=generation)
                 if audio_seek_commanded:
                     self._audio_seek_steps += 1
-                    self._last_audio_seek_abs_azimuth = audio_seek_abs_azimuth
-                    self._last_audio_seek_direction = audio_seek_direction
+                    if not dominant_commanded:
+                        self._last_audio_seek_abs_azimuth = audio_seek_abs_azimuth
+                        self._last_audio_seek_direction = audio_seek_direction
+                        self._last_audio_seek_observation = observation
                 if reframe_commanded:
                     self._mark_reframe_move(now)
+        if dominant_mode:
+            core = self._core_sound_status()
+            identity = (core['core_id'], core['reason'], self._audio_seek_stop_reason, self.features.visual_enabled)
+            previous, recorded = self._last_core_sound_log
+            if identity != previous or now - recorded >= 2.:
+                self.log('core_sound_decision', {'core': core, 'steering_reason': self._audio_seek_stop_reason,
+                    'running': self.running, 'features': asdict(self.features), 'pose': asdict(self.pose)})
+                self._last_core_sound_log = (identity, now)
         return self.snapshot(include_frame=include_frame)
 
 
@@ -1661,12 +2489,86 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
     if settings_path is None and not simulated:
         settings_path = default_settings_path()
     runtime = DemoRuntime(RuntimeConfig(simulated=simulated, settings_path=settings_path))
+    app.state.runtime = runtime
+
+    @app.middleware('http')
+    async def diagnostic_request(request, call_next):
+        identity = uuid.uuid4().hex[:12]
+        token = request_id.set(identity)
+        try:
+            response = await call_next(request)
+            if response.status_code >= 400:
+                runtime.log('http_request_error', {'method': request.method, 'path': request.url.path, 'status': response.status_code})
+            response.headers['X-Request-ID'] = identity
+            return response
+        except Exception as exc:
+            runtime.log('http_unhandled_error', {'method': request.method, 'path': request.url.path, 'error': str(exc)})
+            return JSONResponse({'detail': str(exc), 'request_id': identity}, status_code=500, headers={'X-Request-ID': identity})
+        finally:
+            request_id.reset(token)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def diagnostic_http_error(request, exc):
+        runtime.log('api_error', {'path': request.url.path, 'status': exc.status_code, 'error': exc.detail})
+        return JSONResponse({'detail': exc.detail, 'request_id': request_id.get()}, status_code=exc.status_code)
+
+    @app.get('/api/diagnostics')
+    async def diagnostics():
+        return {'journal': runtime.journal.snapshot(), 'motion_fault': runtime._motion_fault,
+                'feedback': runtime._feedback, 'serial': await asyncio.to_thread(runtime.bus.diagnostics) if hasattr(runtime.bus, 'diagnostics') else {}}
+
+    @app.post('/api/diagnostics/client-error')
+    async def diagnostic_client_error(payload: dict):
+        runtime.log('browser_error', {'message': str(payload.get('message',''))[:1000], 'page': str(payload.get('page',''))[:100]})
+        return {'saved': True}
+
+    @app.get('/api/diagnostics/log/{kind}')
+    async def diagnostic_log(kind: str):
+        path = runtime.journal.path(kind)
+        if path is None or not path.is_file():
+            raise HTTPException(404, '日志文件尚未生成')
+        return FileResponse(path, filename=path.name, media_type='application/x-ndjson')
+
+    @app.post('/api/servo/check')
+    async def check_servo_communication():
+        generation = runtime.halt_motion()
+        try:
+            await asyncio.to_thread(runtime.sync_motion_pose, generation=generation)
+            return {'ok': True, 'running': False, 'feedback': runtime._feedback, 'motion': 'none; position queries only'}
+        except Exception as exc:
+            runtime.log('servo_check_error', {'error': str(exc)})
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/servo/discover')
+    async def discover_servo():
+        generation=runtime.halt_motion()
+        return await asyncio.to_thread(runtime.discover_servo_port,generation=generation)
+
+    async def stereo_preflight(generation):
+        runtime._check_motion_generation(generation)
+        checker=getattr(runtime.vision,'startup_health_check',None)
+        if not runtime.features.camera_enabled or not callable(checker):
+            result={'status':'not_applicable','message':'当前摄像头未启用或当前后端不支持该检查'}
+        else:result=await asyncio.to_thread(checker)
+        runtime._check_motion_generation(generation)
+        runtime._stereo_preflight={**result,'checked_at':time.time()}
+        runtime.log('stereo_startup_check',runtime._stereo_preflight)
+        return dict(runtime._stereo_preflight)
+
+    @app.post('/api/stereo/check')
+    async def check_stereo():
+        generation=runtime.halt_motion()
+        return await stereo_preflight(generation)
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+    @app.on_event("startup")
+    async def startup_event() -> None:
+        runtime.start_control_loop()
+
     @app.on_event("shutdown")
     async def shutdown_event() -> None:
-        runtime.stop()
+        runtime.shutdown()
 
     @app.get("/", response_class=HTMLResponse)
     async def root():
@@ -1680,9 +2582,74 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
     async def state():
         return runtime.snapshot()
 
+    def calibration_service():
+        service=getattr(runtime.vision,"calibration",None)
+        if service is None:
+            raise HTTPException(status_code=400,detail="请使用真实双目采集后端")
+        return service
+
+    @app.get("/api/stereo-calibration/state")
+    async def stereo_calibration_state():
+        return await asyncio.to_thread(calibration_service().snapshot,True)
+
+    @app.get("/api/stereo-calibration/board.pdf")
+    async def stereo_board_pdf():
+        path=Path(__file__).resolve().parents[3]/"output/calibration/stereo-charuco-A4-20mm.pdf"
+        if not path.exists():
+            path=Path(__file__).resolve().parents[4]/"output/calibration/stereo-charuco-A4-20mm.pdf"
+        if not path.exists():
+            raise HTTPException(status_code=404,detail="打印文件尚未生成")
+        return FileResponse(path,media_type="application/pdf",filename=path.name)
+
+    @app.post("/api/stereo-calibration/start")
+    async def stereo_calibration_start(payload:StereoCalibrationRequest):
+        service=calibration_service()
+        with runtime._tick_lock:
+            runtime.running=False
+            if hasattr(runtime.head,"cancel"): runtime.head.cancel()
+        try:
+            return await asyncio.to_thread(service.start,square_mm=payload.square_mm,scale_confirmed=payload.scale_confirmed)
+        except ValueError as exc:
+            raise HTTPException(status_code=400,detail=str(exc)) from exc
+
+    @app.post("/api/stereo-calibration/resume")
+    async def stereo_calibration_resume():
+        service=calibration_service()
+        with runtime._tick_lock:
+            runtime.running=False
+            if hasattr(runtime.head,"cancel"): runtime.head.cancel()
+        try:
+            return await asyncio.to_thread(service.resume)
+        except ValueError as exc:
+            raise HTTPException(status_code=400,detail=str(exc)) from exc
+
+    @app.post("/api/stereo-calibration/stop")
+    async def stereo_calibration_stop():
+        service=calibration_service()
+        await asyncio.to_thread(service.stop)
+        return service.snapshot()
+
+    @app.post("/api/stereo-calibration/solve")
+    async def stereo_calibration_solve():
+        service=calibration_service()
+        try:
+            result=await asyncio.to_thread(service.solve)
+            if result["status"]=="accepted": runtime.vision.request_calibration_reload()
+            return result
+        except Exception as exc:
+            raise HTTPException(status_code=400,detail=str(exc)) from exc
+
     @app.get("/api/devices")
     async def devices():
-        return {"dshow": [asdict(device) for device in list_dshow_devices()]}
+        try:
+            wasapi = list_wasapi_inputs()
+        except Exception as exc:
+            wasapi = [{"error": str(exc)}]
+        return {"dshow": [asdict(device) for device in list_dshow_devices()], "wasapi": wasapi,
+                "serial": [asdict(p) for p in list_serial_ports()],
+                "bindings": {'camera_usb':f'{runtime.camera.usb_vid}:{runtime.camera.usb_pid}',
+                    'microphone_usb':f'{runtime.audio_capture.usb_vid}:{runtime.audio_capture.usb_pid}',
+                    'servo_port':runtime.config.port,'discovery':dict(runtime._servo_discovery)}}
 
     @app.post("/api/servo/scan")
     async def scan(payload: ScanRequest):
@@ -1723,12 +2690,14 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
     @app.post("/api/servo/direct-move")
     async def direct_servo_move(payload: ServoDirectMoveRequest):
         try:
+            generation = runtime.halt_motion()
             result = await asyncio.to_thread(
                 runtime.direct_servo_move,
                 servo_id=payload.servo_id,
                 position=payload.position,
                 time_ms=payload.time_ms,
                 arm=payload.arm,
+                generation=generation,
             )
             return {**result, "error": None}
         except Exception as exc:
@@ -1738,7 +2707,8 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
     @app.post("/api/head/move")
     async def move(payload: MoveRequest):
         try:
-            pose = runtime.move(HeadPose(payload.yaw, payload.pitch), payload.time_ms)
+            generation = runtime.halt_motion()
+            pose = await asyncio.to_thread(runtime.move, HeadPose(payload.yaw, payload.pitch), payload.time_ms, generation=generation)
             return {"target": asdict(pose), "running": runtime.running, "error": None}
         except Exception as exc:
             runtime.log("manual_move_error", {"error": str(exc), "port": runtime.config.port})
@@ -1747,7 +2717,8 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
     @app.post("/api/head/jog")
     async def jog(payload: JogRequest):
         try:
-            pose = runtime.jog(payload.direction, payload.amount, payload.time_ms)
+            generation = runtime.halt_motion()
+            pose = await asyncio.to_thread(runtime.jog, payload.direction, payload.amount, payload.time_ms, generation=generation)
             return {"target": asdict(pose), "running": runtime.running, "error": None}
         except Exception as exc:
             runtime.log("manual_jog_error", {"error": str(exc), "direction": payload.direction})
@@ -1793,6 +2764,14 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
     async def get_audio_config():
         return asdict(runtime.audio_mapping)
 
+    @app.get("/api/config/audio-capture")
+    async def get_audio_capture_config():
+        return asdict(runtime.audio_capture)
+
+    @app.post("/api/config/audio-capture")
+    async def config_audio_capture(payload: AudioCaptureConfigRequest):
+        return runtime.update_audio_capture_config(payload)
+
     @app.post("/api/config/audio")
     async def config_audio(payload: AudioMappingConfigRequest):
         return runtime.update_audio_config(payload)
@@ -1831,17 +2810,32 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
 
     @app.get("/api/serial")
     async def serial_ports():
-        return {"ports": [asdict(port) for port in list_serial_ports()], "selected": runtime.config.port}
+        return {"ports": [{**asdict(port), "reserved_for_audio": is_microphone_port(port)} for port in list_serial_ports()], "selected": runtime.config.port}
 
     @app.post("/api/demo/start")
     async def start_demo():
-        runtime.running = True
-        runtime.log("demo_start")
-        return {"running": runtime.running}
+        runtime.halt_motion()
+        generation = runtime.begin_start()
+        service=getattr(runtime.vision,"calibration",None)
+        if service is not None and service.snapshot()["status"] in ("collecting","solving"):
+            raise HTTPException(409,"标定采集中暂不启用自动转向，请先暂停采集")
+        if runtime.features.audio_enabled or runtime.features.visual_enabled:
+            try:
+                if runtime.features.camera_enabled:
+                    health=await stereo_preflight(generation)
+                    if runtime.features.visual_enabled and health['status']=='misaligned':raise RuntimeError(health['message'])
+                await asyncio.to_thread(runtime.sync_motion_pose, generation=generation)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc)) from exc
+        try:
+            runtime.finish_start(generation)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"running": runtime.running,"stereo_preflight":dict(runtime._stereo_preflight)}
 
     @app.post("/api/demo/stop")
     async def stop_demo():
-        runtime.running = False
+        runtime.halt_motion()
         runtime.log("demo_stop")
         return {"running": runtime.running}
 
@@ -1857,7 +2851,8 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
             while True:
                 now_s = time.monotonic()
                 include_frame = now_s >= next_frame_s
-                snapshot = await asyncio.to_thread(runtime.tick, include_frame=include_frame)
+                method = runtime.snapshot if runtime.control_loop_active else runtime.tick
+                snapshot = await asyncio.to_thread(method, include_frame=include_frame)
                 await websocket.send_json(snapshot)
                 if include_frame:
                     # next_frame_s = now_s + 0.5

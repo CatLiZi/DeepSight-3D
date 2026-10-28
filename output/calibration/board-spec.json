@@ -1,0 +1,23 @@
+{
+  "type": "charuco",
+  "squares_x": 7,
+  "squares_y": 10,
+  "square_length_m": 0.02,
+  "marker_length_m": 0.015,
+  "dictionary": "DICT_4X4_100",
+  "legacy_pattern": false,
+  "opencv_generated": "5.0.0",
+  "board_width_mm": 140,
+  "board_height_mm": 200,
+  "image_width_mm": 144,
+  "image_height_mm": 204,
+  "image_pixels": [
+    1440,
+    2040
+  ],
+  "verification": {
+    "charuco_corners": 54,
+    "markers": 35
+  },
+  "printing": "A4 portrait, actual size / 100%, no fit-to-page; verify the 100 mm ruler"
+}

@@ -1,4 +1,6 @@
 import math
+import io
+import wave
 import struct
 import tempfile
 import unittest
@@ -33,35 +35,29 @@ class AudioDeviceTests(unittest.TestCase):
 
     def test_runtime_audio_is_buffered_and_saved_on_stop_without_denoise(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            class FakeStdout:
-                def __init__(self):
-                    self._yielded = False
-
-                def read(self, _size):
-                    if self._yielded:
-                        return b""
-                    self._yielded = True
-                    return b"\x00\x01\x00\x01" * 40
-
             class FakeProcessWithStdout:
-                def __init__(self, stdout):
-                    self.stdout = stdout
+                # A terminated producer can still have unread pipe data.
+                def __init__(self):
+                    self.stdout = io.BytesIO(b"\x00\x01\x00\x01" * 40)
                     self.stderr = None
-                    self._poll_count = 0
+                    self.returncode = 0
 
                 def poll(self):
-                    self._poll_count += 1
-                    return 0 if self._poll_count > 1 else None
+                    return self.returncode
 
             localizer = FfmpegAudioLocalizer(denoise=False, denoise_output_dir=tmpdir, recording_enabled=True)
-            localizer._process = FakeProcessWithStdout(FakeStdout())
+            localizer._process = FakeProcessWithStdout()
 
             localizer._read_loop()
             localizer.stop()
 
             files = sorted(Path(tmpdir).glob("*.wav"))
             self.assertEqual(1, len(files))
-            self.assertGreater(files[0].stat().st_size, 0)
+            with wave.open(str(files[0]), 'rb') as recording:
+                self.assertEqual(recording.getnchannels(), 2)
+                self.assertEqual(recording.getframerate(), localizer.sample_rate)
+                self.assertEqual(recording.getnframes(), 40)
+                self.assertEqual(recording.readframes(40), b"\x00\x01\x00\x01" * 40)
 
     def test_channel_level_bias_detects_close_side_speech(self):
         localizer = FfmpegAudioLocalizer()
@@ -73,7 +69,10 @@ class AudioDeviceTests(unittest.TestCase):
 
         estimate = localizer._estimate_from_raw(raw)
 
-        self.assertEqual(estimate.direction, AudioDirection.LEFT)
+        # Same-phase samples with unequal gain have zero measured delay.
+        # Loudness alone is not a reliable left/right bearing.
+        self.assertEqual(estimate.direction, AudioDirection.CENTER)
+        self.assertAlmostEqual(estimate.tdoa_s, 0., places=6)
 
     def test_low_voiced_speech_keeps_vad_confidence(self):
         localizer = FfmpegAudioLocalizer()
@@ -112,7 +111,7 @@ class AudioDeviceTests(unittest.TestCase):
         localizer = FfmpegAudioLocalizer(denoise=True, use_denoised_for_localization=True)
 
         raw = classify_audio_direction(
-            -0.00035,
+            0.00020,
             0.8,
             min_energy=0.08,
             speech_confidence=0.8,
@@ -120,7 +119,7 @@ class AudioDeviceTests(unittest.TestCase):
             noise_state="voiced_speech",
         )
         denoised = classify_audio_direction(
-            0.00035,
+            -0.00020,
             0.8,
             min_energy=0.08,
             speech_confidence=0.8,
@@ -128,6 +127,8 @@ class AudioDeviceTests(unittest.TestCase):
             noise_state="voiced_speech",
         )
 
+        first = localizer._human_voice_double_check(raw, denoised)
+        self.assertEqual(first.direction, AudioDirection.UNKNOWN)
         result = localizer._human_voice_double_check(raw, denoised)
 
         self.assertEqual(result.direction, AudioDirection.LEFT)
@@ -137,7 +138,7 @@ class AudioDeviceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             localizer = FfmpegAudioLocalizer(denoise_output_dir=tmpdir, recording_enabled=True)
             estimate = classify_audio_direction(
-                0.00035,
+                0.00020,
                 0.8,
                 min_energy=0.08,
                 speech_confidence=0.8,
@@ -146,10 +147,14 @@ class AudioDeviceTests(unittest.TestCase):
             )
 
             localizer._append_recording_chunk(b"\x01\x02" * 160, estimate)
+            localizer.stop()
 
             files = sorted(Path(tmpdir).glob("*.wav"))
             self.assertEqual(1, len(files))
-            self.assertGreater(files[0].stat().st_size, 0)
+            with wave.open(str(files[0]), 'rb') as recording:
+                self.assertEqual(recording.getnchannels(), 2)
+                self.assertEqual(recording.getnframes(), 80)
+                self.assertEqual(recording.readframes(80), b"\x01\x02" * 160)
 
 
 if __name__ == "__main__":

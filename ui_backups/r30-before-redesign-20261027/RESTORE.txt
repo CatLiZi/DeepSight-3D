@@ -1,0 +1,5 @@
+旧版完整UI备份（R30）。
+static目录按原字节保存，manifest.json可核对。
+旧版在线入口：http://127.0.0.1:8010/static/legacy-r30/index.html
+恢复时将本目录static内的文件复制回定位项目src/locator_demo/web/static，覆盖同名文件；无需删除新增文件或更改硬件配置。
+也可运行同目录Restore-UI.ps1，或让助手恢复。恢复后Ctrl+F5刷新控制网页。

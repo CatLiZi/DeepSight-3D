@@ -29,6 +29,10 @@ class FaceTarget:
     tracking_x: float | None = None
     tracking_y: float | None = None
     tracking_source: str = ""
+    source_eye: str = ""
+    stereo_position: dict | None = None
+    bearing: dict | None = None
+    fixation: dict | None = None
 
     @property
     def area(self) -> float:
@@ -121,6 +125,19 @@ def normalized_center_error(
     if frame_width <= 0 or frame_height <= 0:
         raise ValueError("frame dimensions must be positive")
     center_x, center_y = target.tracking_center if isinstance(target, FaceTarget) else target.center
+    from .fixation import control_point
+    fixation_point = control_point(target.fixation, (frame_width,frame_height)) if isinstance(target,FaceTarget) else None
+    if fixation_point is not None:
+        center_x,center_y=fixation_point
+    elif isinstance(target,FaceTarget) and target.bearing and target.bearing.get('frame')=='screen_centered_optical':
+        center_x,center_y=target.bearing['virtual_u_px'],target.bearing['virtual_v_px']
+    elif isinstance(target, FaceTarget) and target.stereo_position is not None:
+        position=target.stereo_position
+        if position.get("frame")=="rectified_camera_midpoint":
+            center_x,center_y=position["virtual_u_px"],position["virtual_v_px"]
+    elif isinstance(target,FaceTarget) and target.bearing is not None:
+        if target.bearing.get('frame') in ('rig_optical_bisector','screen_centered_optical'):
+            center_x,center_y=target.bearing['virtual_u_px'],target.bearing['virtual_v_px']
     offset_x = max(-0.45, min(0.45, float(target_offset_x_norm)))
     offset_y = max(-0.45, min(0.45, float(target_offset_y_norm)))
     aim_x = frame_width * (0.5 + offset_x)

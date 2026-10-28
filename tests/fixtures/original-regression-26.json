@@ -1,0 +1,80 @@
+[
+  {
+    "id": "test_audio_device.AudioDeviceTests.test_channel_level_bias_detects_close_side_speech"
+  },
+  {
+    "id": "test_audio_device.AudioDeviceTests.test_raw_direction_is_preferred_when_denoised_confirms_human_voice"
+  },
+  {
+    "id": "test_audio_device.AudioDeviceTests.test_single_wav_is_written_when_speech_is_located"
+  },
+  {
+    "id": "test_head.HeadLogicTests.test_applies_visual_error_with_deadband"
+  },
+  {
+    "id": "test_head.HeadLogicTests.test_visual_error_respects_min_and_max_step_ranges"
+  },
+  {
+    "id": "test_orchestrator.OrchestratorTests.test_visual_target_needs_mouth_evidence_after_audio"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_crowded_mode_can_search_audio_after_silent_visual_hold"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_crowded_mode_holds_when_near_face_is_silent"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_crowded_mode_locks_near_active_speaker"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_crowded_mode_marks_one_locked_target_when_detector_ids_collide"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_crowded_mode_rejects_too_far_face_for_control"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_crowded_rules_do_not_lock_without_audio_gate"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_interruptible_policy_switches_to_much_stronger_speaker"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_silent_visible_face_does_not_block_offscreen_audio_yaw"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_single_visible_face_can_reframe_pitch_even_if_audio_region_mismatches"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_turn_hold_policy_switches_after_first_speaker_goes_silent"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_until_lost_policy_keeps_first_speaker_while_visible"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_until_lost_policy_releases_after_locked_speaker_disappears"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_visible_silent_face_does_not_lock_or_move"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_visible_unconfirmed_face_reframes_pitch_without_extra_yaw"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_visual_calibration_sample_reports_manual_alignment_error"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_visual_control_step_range_overrides_profile"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_visual_mirror_x_flips_visual_yaw_correction_only"
+  },
+  {
+    "id": "test_web_app.WebAppTests.test_visual_yaw_small_limits_tracking_correction"
+  },
+  {
+    "id": "test_audio_device.AudioDeviceTests.test_runtime_audio_is_buffered_and_saved_on_stop_without_denoise"
+  },
+  {
+    "id": "test_orchestrator.OrchestratorTests.test_denoise_double_check_rejects_noise_like_trigger"
+  }
+]

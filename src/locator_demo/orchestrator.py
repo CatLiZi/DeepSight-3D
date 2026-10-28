@@ -53,6 +53,7 @@ class LocatorStateMachine:
         mouth_evidence_threshold: float = 0.25,
         visual_audio_sync_window_s: float = 1.2,
         required_audio_hits: int = 2,
+        require_recent_audio: bool = False,
     ):
         self.lost_timeout_s = float(lost_timeout_s)
         self.hold_timeout_s = float(hold_timeout_s)
@@ -62,6 +63,7 @@ class LocatorStateMachine:
         self.visual_speaker_threshold = float(visual_speaker_threshold)
         self.mouth_evidence_threshold = float(mouth_evidence_threshold)
         self.visual_audio_sync_window_s = float(visual_audio_sync_window_s)
+        self.require_recent_audio = bool(require_recent_audio)
         self.required_audio_hits = max(1, int(required_audio_hits))
         self._mode = DemoMode.LISTENING
         self._last_target_s: float | None = None
@@ -93,14 +95,18 @@ class LocatorStateMachine:
     def _target_is_confirmed(self, target: FaceTarget | None, now_s: float) -> bool:
         if target is None:
             return False
-        face_height_ratio = float(getattr(target, "face_height_ratio", 0.0))
-        size_evidence = face_height_ratio >= 0.12 or target.area >= 8000.0
-        if target.speaker_score < self.visual_speaker_threshold and not size_evidence:
+        if self.require_recent_audio and (self._last_audio_s is None or
+                now_s - self._last_audio_s > self.visual_audio_sync_window_s):
             return False
-        if target.frontal_score < 0.25 and not size_evidence:
+        # Face size supports visual selection, but cannot prove that a person
+        # is speaking. The visual_priority strategy has its own silent-face
+        # policy; this legacy speaker state machine requires mouth evidence.
+        if target.speaker_score < self.visual_speaker_threshold:
+            return False
+        if target.frontal_score < 0.25:
             return False
         mouth_evidence = max(target.mouth_motion_score, target.mouth_audio_sync_score)
-        if mouth_evidence < self.mouth_evidence_threshold and not size_evidence:
+        if mouth_evidence < self.mouth_evidence_threshold:
             return False
         return True
 
@@ -112,6 +118,8 @@ class LocatorStateMachine:
         now_s: float,
     ) -> DemoState:
         audio_ready = self._audio_is_ready(audio)
+        if audio_ready and self._mode == DemoMode.TRACK_SPEAKER:
+            self._last_audio_s = now_s
         target_confirmed = self._target_is_confirmed(target, now_s)
 
         if target_confirmed and target is not None:

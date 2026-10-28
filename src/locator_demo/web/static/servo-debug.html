@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>人头舵机 · 实物调试</title><link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/servo-debug.css">
+  <script src="/static/servo-debug.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <div><span class="eyebrow">DEEPSIGHT / 硬件调试</span><h1>让每一次转动都看得清</h1><p>逐轴检查方向、幅度和顺滑度。页面不会启动听声或视觉自动转头。</p></div>
+    <button id="stop" class="stop">■ 停止发令 <small>或按空格</small></button>
+  </header>
+  <section class="connect-bar">
+    <div><strong id="connection">尚未读取舵机</strong><span id="connection-note">先读取实际位置，再做手动测试。</span></div>
+    <button id="connect" class="primary">读取位置 / 重新连接</button>
+  </section>
+  <p id="message" role="status" aria-live="polite">请在实物旁观察，每次只测试一个轴。</p>
+  <section class="guide"><b>测试顺序</b><span>① 读取位置</span><span>② 先以 30 刻度试正反</span><span>③ 正常后改为 60 / 120 刻度</span><span>④ 记录实际方向和顺滑度</span></section>
+  <div class="axis-grid">
+    <section class="card axis" data-axis="yaw">
+      <div class="card-heading"><div><span class="eyebrow">轴 A · ID <span id="yaw-id">0</span></span><h2>待确认的左右轴</h2></div><span id="yaw-status" class="badge">未读取</span></div>
+      <div class="readout"><div><span>实际位置</span><strong id="yaw-position">—</strong></div><div><span>本次起点</span><b id="yaw-origin">—</b><small id="yaw-range">配置范围 800–2200</small></div></div>
+      <p id="yaw-note" class="axis-note">此处显示舵机实际回包；不会把目标位置当作实测。</p>
+      <div class="step-row"><label for="yaw-step">单次幅度</label><select id="yaw-step"><option value="10">10 刻度</option><option value="30" selected>30 刻度 · 先试</option><option value="60">60 刻度</option><option value="120">120 刻度 · 大幅</option><option value="240">240 刻度 · 大幅</option></select></div>
+      <div class="buttons"><button data-axis="yaw" data-sign="-1" class="move" disabled>− 减小数值</button><button data-axis="yaw" data-sign="1" class="move" disabled>＋ 增大数值</button></div>
+      <button data-return="yaw" class="return" disabled>回到本次起点</button>
+      <div class="target-row"><label for="yaw-target">指定位置</label><input id="yaw-target" type="number" min="800" max="2200" value="1500" step="1"><button data-target="yaw" disabled>平滑转到</button></div>
+    </section>
+    <section class="card axis" data-axis="pitch">
+      <div class="card-heading"><div><span class="eyebrow">轴 B · ID <span id="pitch-id">2</span></span><h2>待确认的俯仰轴</h2></div><span id="pitch-status" class="badge">未读取</span></div>
+      <div class="readout"><div><span>实际位置</span><strong id="pitch-position">—</strong></div><div><span>本次起点</span><b id="pitch-origin">—</b><small id="pitch-range">配置范围 1200–1800</small></div></div>
+      <p id="pitch-note" class="axis-note">正反方向尚未标定，因此按钮先按数值增减命名。</p>
+      <div class="step-row"><label for="pitch-step">单次幅度</label><select id="pitch-step"><option value="10">10 刻度</option><option value="30" selected>30 刻度 · 先试</option><option value="60">60 刻度</option><option value="120">120 刻度 · 大幅</option><option value="240">240 刻度 · 大幅</option></select></div>
+      <div class="buttons"><button data-axis="pitch" data-sign="-1" class="move" disabled>− 减小数值</button><button data-axis="pitch" data-sign="1" class="move" disabled>＋ 增大数值</button></div>
+      <button data-return="pitch" class="return" disabled>回到本次起点</button>
+      <div class="target-row"><label for="pitch-target">指定位置</label><input id="pitch-target" type="number" min="1200" max="1800" value="1500" step="1"><button data-target="pitch" disabled>平滑转到</button></div>
+    </section>
+  </div>
+  <div class="lower-grid">
+    <section class="card"><div class="card-heading"><h2>实际位置轨迹</h2><span class="legend"><i></i>轴 A <i class="orange"></i>轴 B</span></div><canvas id="trace" height="170" aria-label="实际舵机位置随时间变化"></canvas><p class="muted">实线是位置回包，虚线是运动规划值。刻度尚未标定为角度。</p></section>
+    <section class="card"><h2>记录实物观察</h2><p id="last-move" class="muted">完成一次动作后，在这里记录。</p><form id="observation">
+      <label>实际方向<select id="observed-direction" required><option value="unknown">没看清 / 暂不确定</option><option value="left">向人头自身左侧</option><option value="right">向人头自身右侧</option><option value="up">抬头</option><option value="down">低头</option><option value="none">完全不转动</option></select></label>
+      <label>转动感觉<select id="observed-smoothness" required><option value="unknown">暂不确定</option><option value="smooth">连续、顺滑</option><option value="sticky">一顿一顿 / 卡顿</option><option value="shaking">抖动 / 异响</option></select></label>
+      <label>补充说明<input id="observed-note" maxlength="500" placeholder="例如：只动了底座，头部没有抬起"></label><button id="save-observation" type="submit" disabled>保存本次观察</button>
+    </form></section>
+  </div>
+  <section class="card"><div class="card-heading"><h2>测试记录</h2><a href="/api/debug/download" download>下载记录</a></div><div class="table-wrap"><table><thead><tr><th>动作</th><th>轴</th><th>起点 → 目标</th><th>实测终点</th><th>状态</th><th>实物观察</th></tr></thead><tbody id="moves"><tr><td colspan="6" class="muted">尚未发出运动指令</td></tr></tbody></table></div><p id="record-path" class="muted"></p></section>
+  <footer>当前软件范围：左右 800–2200、上下 1200–1800；尚未确认机械极限。出现异响或顶住时立即停止；停止发令不切断舵机电源。网页失去连接时也会停止发令。</footer>
+</main>
+</body></html>

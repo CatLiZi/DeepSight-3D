@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-10-27T15:27:36.654794+08:00",
+  "previous_ui": "R30",
+  "files": {
+    "app.js": "8c544224993657cb25658b55e4ed99d1aa2da1b38b5482fb6ba27a68800f7fe4",
+    "audio_view.js": "fd5eba42f40a179c288da0143f66968104cec7782e82b0ba555c75b4d9e6be50",
+    "index.html": "bfcb583f124ae0ee7d1a993ea5d976554e70d5d1d64536511f381650d3b94c95",
+    "servo-debug.css": "2605e268f474e1226ca17f16191dc72dfa66daadecf3a3e16f656d82a4a93c24",
+    "servo-debug.html": "29a93e60976432b0b6b12c0829c1bc7c9fc6630f894dd82203883e5ed195221b",
+    "servo-debug.js": "26b07cce67e4e4677745cb5b7b235c0a519cf8178c1344d2bdada2987f42de21",
+    "styles.css": "83759bb4d9d52ab556938f18c9aac118688eae08fbc8429bc211e5ca3de6d918"
+  }
+}
