@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .audio_policy import DEFAULT_AUDIO_POLICY
 from .head import DirectionConfig, DEFAULT_YAW_MIN, DEFAULT_YAW_CENTER, DEFAULT_YAW_MAX
 from .ear_localization import EarPairConfig
 
@@ -178,6 +180,13 @@ class AudioCaptureConfig:
     ear_mapping_confirmed: bool = False
     ear_spacing_m: float | None = None
     ear_delay_offset_us: float = 0.0
+    body_left_channel: int = 1
+    body_right_channel: int = 4
+    body_mapping_confirmed: bool = False
+    body_spacing_m: float = .0755
+    body_delay_offset_us: float = 0.0
+    body_yaw_units_per_degree: float | None = None
+    body_yaw_zero_position: float | None = None
 
     def __post_init__(self):
         if self.backend not in ("wasapi", "legacy"):
@@ -190,10 +199,33 @@ class AudioCaptureConfig:
             raise ValueError('YDPI4MIC requires four-channel WASAPI RAW; stereo downmix/DSP is not localization input')
         object.__setattr__(self, "block_ms", max(5, min(100, int(self.block_ms))))
         self.ear_pair_config()
+        if self.localization_mode == 'four_mic':
+            if self.backend != 'wasapi':
+                raise ValueError('Four-mic fusion requires WASAPI RAW')
+            body=self.body_pair_config()
+            if not self.ear_pair_config().ready or not body.ready:
+                raise ValueError('Confirm both ear and body microphone mappings before fusion')
+            if len(set(self.ear_pair_config().selected+body.selected))!=4:
+                raise ValueError('Four-mic fusion needs four distinct channels')
+        if self.body_yaw_units_per_degree is not None and (
+                isinstance(self.body_yaw_units_per_degree,bool)
+                or not math.isfinite(self.body_yaw_units_per_degree)
+                or not 1<=self.body_yaw_units_per_degree<=30):
+            raise ValueError('Measured yaw units per degree must be in 1..30')
+        if self.body_yaw_zero_position is not None and (
+                isinstance(self.body_yaw_zero_position,bool)
+                or not math.isfinite(self.body_yaw_zero_position)
+                or not 500<=self.body_yaw_zero_position<=2500):
+            raise ValueError('Measured neutral feedback must be in 500..2500')
 
     def ear_pair_config(self):
-        return EarPairConfig(self.localization_mode, self.ear_left_channel, self.ear_right_channel,
+        return EarPairConfig('ear_pair' if self.localization_mode=='four_mic' else self.localization_mode,
+                             self.ear_left_channel, self.ear_right_channel,
                              self.ear_mapping_confirmed, self.ear_spacing_m, self.ear_delay_offset_us)
+
+    def body_pair_config(self):
+        return EarPairConfig('ear_pair',self.body_left_channel,self.body_right_channel,
+                             self.body_mapping_confirmed,self.body_spacing_m,self.body_delay_offset_us)
 
 
 @dataclass(frozen=True)
@@ -249,9 +281,9 @@ class AxisLimitsConfig:
 @dataclass(frozen=True)
 class AudioProcessingConfig:
     vad_enabled: bool = True
-    audio_confidence_threshold: float = 0.20
-    speech_confidence_threshold: float = 0.15
-    doa_confidence_threshold: float = 0.05
+    audio_confidence_threshold: float = DEFAULT_AUDIO_POLICY.confidence
+    speech_confidence_threshold: float = DEFAULT_AUDIO_POLICY.speech
+    doa_confidence_threshold: float = DEFAULT_AUDIO_POLICY.doa
     required_audio_hits: int = 1
     denoise_enabled: bool = False
     denoise_dry_mix: float = 0.15
@@ -263,17 +295,17 @@ class AudioProcessingConfig:
         object.__setattr__(
             self,
             "audio_confidence_threshold",
-            _threshold_value(self.audio_confidence_threshold, 0.20),
+            max(DEFAULT_AUDIO_POLICY.confidence, _threshold_value(self.audio_confidence_threshold, DEFAULT_AUDIO_POLICY.confidence)),
         )
         object.__setattr__(
             self,
             "speech_confidence_threshold",
-            _threshold_value(self.speech_confidence_threshold, 0.15),
+            max(DEFAULT_AUDIO_POLICY.speech, _threshold_value(self.speech_confidence_threshold, DEFAULT_AUDIO_POLICY.speech)),
         )
         object.__setattr__(
             self,
             "doa_confidence_threshold",
-            _threshold_value(self.doa_confidence_threshold, 0.05),
+            max(DEFAULT_AUDIO_POLICY.doa, _threshold_value(self.doa_confidence_threshold, DEFAULT_AUDIO_POLICY.doa)),
         )
         object.__setattr__(
             self,
@@ -524,8 +556,8 @@ def load_settings(path: Path | str | None) -> SavedSettings:
         audio=AudioProcessingConfig(
             vad_enabled=bool(audio_data.get("vad_enabled", True)),
             audio_confidence_threshold=float(audio_data.get("audio_confidence_threshold", 0.20)),
-            speech_confidence_threshold=float(audio_data.get("speech_confidence_threshold", 0.15)),
-            doa_confidence_threshold=float(audio_data.get("doa_confidence_threshold", 0.05)),
+            speech_confidence_threshold=float(audio_data.get("speech_confidence_threshold", DEFAULT_AUDIO_POLICY.speech)),
+            doa_confidence_threshold=float(audio_data.get("doa_confidence_threshold", DEFAULT_AUDIO_POLICY.doa)),
             required_audio_hits=int(audio_data.get("required_audio_hits", 1)),
             denoise_enabled=bool(audio_data.get("denoise_enabled", False)),
             denoise_dry_mix=float(audio_data.get("denoise_dry_mix", 0.15)),

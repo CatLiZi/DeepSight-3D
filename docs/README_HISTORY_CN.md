@@ -93,7 +93,7 @@
 
 ```powershell
 conda activate demo
-Set-Location C:\Users\SLAI\Desktop\DeepSight-3D\positioning_robots
+Set-Location <repository>
 ```
 
 安装完整 Python 依赖：
@@ -139,10 +139,10 @@ python -c "import torch, onnxruntime; print('cuda=', torch.cuda.is_available(), 
 真实硬件模式：
 
 ```powershell
-Set-Location "C:\Users\SLAI\Desktop\DeepSight-3D\positioning_robots"
+Set-Location "<repository>"
 $env:LOCATOR_DEMO_PORT = "8010"
 $env:LOCATOR_DEMO_SIM = "0"
-& "C:\Users\SLAI\miniconda3\envs\demo\python.exe" -X utf8 .\run_server.py
+& "python" -X utf8 .\run_server.py
 ```
 
 如旧服务仍在运行，先在它原来的 PowerShell 窗口按 `Ctrl+C`，看到退出完成后再运行上述命令。不要并开另一个真实硬件服务。重新启动并对网页按 `Ctrl+F5` 后，可只读查看 `http://127.0.0.1:8010/api/state`：`algorithm_revision` 应为 `R42`，`running` 应为 `false`。源码导入与启动参数已做隔离模拟检查，真实服务的正常重启仍需操作人员完成。
@@ -157,7 +157,7 @@ http://127.0.0.1:8010/
 
 ```powershell
 conda activate demo
-Set-Location C:\Users\SLAI\Desktop\DeepSight-3D\positioning_robots
+Set-Location <repository>
 $env:LOCATOR_DEMO_SIM="1"
 python run_server.py
 ```
@@ -438,7 +438,7 @@ LISTENING -> AUDIO_CANDIDATE -> SEEK_VISUAL -> VISUAL_CONFIRM -> TRACK_SPEAKER -
 
 ```powershell
 conda activate demo
-Set-Location C:\Users\SLAI\Desktop\DeepSight-3D\positioning_robots
+Set-Location <repository>
 $env:PYTHONPATH="$PWD\src"
 python -m unittest discover -s tests
 ```

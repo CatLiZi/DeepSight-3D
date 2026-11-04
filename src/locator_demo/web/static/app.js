@@ -186,9 +186,10 @@ function renderAudioObservation(audio, display) {
   const container=$("ear-levels");container.replaceChildren();
   if(capture?.channel_rms){
     for(let ch=1;ch<=4;ch++){
-      const active=[capture.ear_left_channel,capture.ear_right_channel].includes(ch);
+      const descriptor=typeof ArrayView==='undefined' ? null : ArrayView.channel(capture,ch);
+      const active=descriptor ? descriptor.active : [capture.ear_left_channel,capture.ear_right_channel].includes(ch);
       const row=document.createElement('div');row.className='ear-level'+(active ? '' : ' excluded');
-      const label=document.createElement('span');label.textContent=ch===capture.ear_left_channel ? `左耳 CH${ch}` : ch===capture.ear_right_channel ? `右耳 CH${ch}` : `CH${ch} 未参与`;
+      const label=document.createElement('span');label.textContent=descriptor ? descriptor.label : ch===capture.ear_left_channel ? `左耳 CH${ch}` : ch===capture.ear_right_channel ? `右耳 CH${ch}` : `CH${ch} 未参与`;
       const meter=document.createElement('div');meter.className='ear-meter';
       const bar=document.createElement('i');const level=capture.channel_rms[ch-1];
       const db=Number.isFinite(level) && level>0 ? 20*Math.log10(level) : -120;
@@ -197,10 +198,11 @@ function renderAudioObservation(audio, display) {
       row.append(label,meter,value);container.append(row);
     }
   }
-  const probability=capture?.speech_vad?.speech_probability;
-  const speech=Number.isFinite(probability) ? `人声${probability>=.5 ? '已检出' : '尚未通过'} ${(probability*100).toFixed(0)}%` : '人声检测信息暂不可用';
+  const probability=audio.decision?.voice?.score ?? capture?.speech_vad?.speech_probability;
+  const detectionThreshold=audio.decision?.voice?.threshold ?? audio.decision_policy?.detection_speech ?? .45;
+  const speech=Number.isFinite(probability) ? `语音证据${probability>=detectionThreshold ? '已检出' : '不足'} ${(probability*100).toFixed(0)}%（方向及动作另行判定）` : '人声检测信息暂不可用';
   const raw=audio.raw_observation || audio;
-  const reason=AudioView.reasonText(capture?.localization_message || raw.noise_state);
+  const reason=audio.decision?.direction?.label ?? AudioView.reasonText(capture?.localization_message || raw.noise_state);
   const guard=audio.motor_suppressed ? '转头噪声保护中，声音不参与控制' : '输入电平只表示收到声音，不代表距离';
   const last=display?.active ? `；${display.historical ? '最近' : '当前'}声源 ${display.azimuth_deg>=0 ? '左' : '右'}${Math.abs(display.azimuth_deg).toFixed(1)}° ±${display.spread_deg}°${display.historical ? '（声音结束后保留1秒，仅显示，不计为新证据）' : ''}` : '';
   const displayNote=display?.active && !display.historical && !display.selector_accepted
@@ -377,9 +379,11 @@ function render(snapshot) {
     : "";
   const audioCapture = snapshot.audio.capture;
   const vad=audioCapture?.speech_vad;
-  $("speech-vad-note").textContent=vad ? `语音检测：${vad.backend==="silero_onnx_cpu" ? "Silero 本地模型" : "频谱门控降级"} · 语音概率 ${((vad.speech_probability || 0)*100).toFixed(0)}% · 方向时间一致性 ${((snapshot.audio.temporal_stability || 0)*100).toFixed(0)}%` : "";
+  const recovery=audioCapture?.context_recovery;
+  $("speech-vad-note").textContent=vad ? `语音检测：${vad.backend==="silero_onnx_cpu" ? "Silero 本地模型" : "频谱门控降级"} · 主通道当前窗支持 ${((vad.analysis_window_speech_support ?? vad.speech_probability ?? 0)*100).toFixed(0)}%${recovery ? ` · 辅助支持 ${(recovery.voice_support*100).toFixed(0)}%，恢复要求 ${(recovery.speech_requirement*100).toFixed(0)}% · ${recovery.selected==='bounded_context' ? '已采用辅助方向' : '保留主通道'}` : ''} · 方向时间一致性 ${((snapshot.audio.temporal_stability || 0)*100).toFixed(0)}%（支持分不代表识别准确率）` : "";
   $("array-audio-note").hidden = !audioCapture;
-  if (audioCapture) $("array-audio-note").textContent = audioCapture.localization_mode === "ear_pair"
+  if (audioCapture) $("array-audio-note").textContent = audioCapture.localization_mode === 'four_mic' && typeof ArrayView!=='undefined'
+    ? ArrayView.summary(audioCapture) : audioCapture.localization_mode === "ear_pair"
     ? `头部两耳：左耳 CH${audioCapture.ear_left_channel} / 右耳 CH${audioCapture.ear_right_channel}；排除 ${audioCapture.ignored_channels.map(c => "CH" + c).join("、")}。${audioCapture.wasapi_raw ? "独立原始信号" : "系统处理信号"}；状态 ${audioCapture.localization_message}。两耳方案尚不能区分前后，角度使用名义间距。`
     : "四路原始录音保留；配置并确认耳部通道后启用定位。";
   $("microphone-capture-metrics").textContent = audioCapture
@@ -549,6 +553,12 @@ function applyEarConfig(config) {
   $("ear-spacing-mm").value = config.ear_spacing_m == null ? "" : config.ear_spacing_m * 1000;
   $("ear-map-confirmed").checked = Boolean(config.ear_mapping_confirmed);
   $("ear-raw").checked = config.wasapi_raw !== false;
+  $("body-left-channel").value = config.body_left_channel ?? 1;
+  $("body-right-channel").value = config.body_right_channel ?? 4;
+  $("body-spacing-mm").value = (config.body_spacing_m ?? .0755) * 1000;
+  $("body-map-confirmed").checked = Boolean(config.body_mapping_confirmed);
+  $("body-yaw-scale").value = config.body_yaw_units_per_degree ?? '';
+  if ($("body-yaw-zero")) $("body-yaw-zero").value = config.body_yaw_zero_position ?? '';
 }
 
 async function saveEarConfig() {
@@ -557,7 +567,12 @@ async function saveEarConfig() {
     method: "POST", body: JSON.stringify({...config, localization_mode: $("ear-mode").value,
       ear_left_channel: optionalNumber("ear-left-channel"), ear_right_channel: optionalNumber("ear-right-channel"),
       ear_spacing_m: optionalNumber("ear-spacing-mm") == null ? null : Number($("ear-spacing-mm").value) / 1000,
-      ear_mapping_confirmed: $("ear-map-confirmed").checked, wasapi_raw: $("ear-raw").checked})
+      ear_mapping_confirmed: $("ear-map-confirmed").checked, wasapi_raw: $("ear-raw").checked,
+      body_left_channel: optionalNumber("body-left-channel"),body_right_channel: optionalNumber("body-right-channel"),
+      body_spacing_m: optionalNumber("body-spacing-mm")==null ? .0755 : Number($("body-spacing-mm").value)/1000,
+      body_mapping_confirmed: $("body-map-confirmed").checked,
+      body_yaw_units_per_degree: optionalNumber("body-yaw-scale"),
+      body_yaw_zero_position: $("body-yaw-zero") ? optionalNumber("body-yaw-zero") : (config.body_yaw_zero_position ?? null)})
   }));
   applyEarConfig(session.audio_capture);
 }
@@ -619,8 +634,8 @@ function applyProcessingConfig(audioProcessing, visionProcessing) {
     state.audioProcessingConfig={...audioProcessing};
     $("vad-enabled-input").checked = audioProcessing.vad_enabled !== false;
     $("audio-threshold-input").value = audioProcessing.audio_confidence_threshold ?? 0.20;
-    $("speech-threshold-input").value = audioProcessing.speech_confidence_threshold ?? 0.15;
-    $("doa-threshold-input").value = audioProcessing.doa_confidence_threshold ?? 0.05;
+    $("speech-threshold-input").value = audioProcessing.speech_confidence_threshold ?? 0.50;
+    $("doa-threshold-input").value = audioProcessing.doa_confidence_threshold ?? 0.20;
     $("audio-hits-input").value = audioProcessing.required_audio_hits ?? 1;
   }
   if (visionProcessing) {
@@ -716,8 +731,8 @@ async function saveAudioConfig() {
     body: JSON.stringify({
       vad_enabled: $("vad-enabled-input").checked,
       audio_confidence_threshold: Number($("audio-threshold-input").value || 0.20),
-      speech_confidence_threshold: Number($("speech-threshold-input").value || 0.15),
-      doa_confidence_threshold: Number($("doa-threshold-input").value || 0.05),
+      speech_confidence_threshold: Number($("speech-threshold-input").value || 0.50),
+      doa_confidence_threshold: Number($("doa-threshold-input").value || 0.20),
       required_audio_hits: Number($("audio-hits-input").value || 1),
       denoise_enabled: state.audioProcessingConfig?.denoise_enabled ?? false,
       denoise_dry_mix: state.audioProcessingConfig?.denoise_dry_mix ?? 0.15,

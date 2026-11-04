@@ -102,10 +102,10 @@
     "usb_pid": "459D",
     "wasapi_raw": true,
     "localization_mode": "ear_pair",
-    "ear_left_channel": 3,
-    "ear_right_channel": 2,
+    "ear_left_channel": 2,
+    "ear_right_channel": 3,
     "ear_mapping_confirmed": false,
-    "ear_spacing_m": 0.13176241517,
+    "ear_spacing_m": 0.1355,
     "ear_delay_offset_us": 0
   }
 }

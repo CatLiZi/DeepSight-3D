@@ -8,7 +8,9 @@ from dataclasses import replace
 import math
 from numbers import Integral, Real
 
-_AUDIO_FRESHNESS_S = .35
+from .audio_policy import DEFAULT_AUDIO_POLICY
+
+_AUDIO_FRESHNESS_S = DEFAULT_AUDIO_POLICY.freshness_s
 
 
 def _finite_number(value):
@@ -20,6 +22,7 @@ def _finite_number(value):
 
 class AudioVisualSelector:
     def __init__(self,lost_timeout=.7):
+        self.policy=DEFAULT_AUDIO_POLICY
         self.lost_timeout=lost_timeout;self.person=None;self.last_seen=0.;self.locked_at=0.
         self.audio_candidate=None;self.audio_since=0.;self.audio_hits=0;self.last_audio_sequence=None
         self._last_audio_observation=None
@@ -90,10 +93,10 @@ class AudioVisualSelector:
         probabilities=(audio.speech_confidence,audio.confidence,audio.doa_confidence,audio.temporal_stability)
         if not all(_finite_number(v) and 0.<=v<=1. for v in probabilities):
             return False,'invalid_audio_probability',age
-        if audio.speech_confidence<.5:return False,'low_speech_probability',age
-        if min(audio.confidence,audio.doa_confidence)<.20:return False,'low_direction_confidence',age
-        if audio.temporal_stability<.5:return False,'direction_not_stable',age
-        if not all(_finite_number(v) for v in (audio.azimuth_deg,audio.azimuth_std_deg)) or not -90.<=audio.azimuth_deg<=90. or not 0.<=audio.azimuth_std_deg<=25.:
+        if audio.speech_confidence<self.policy.speech:return False,'low_speech_probability',age
+        if audio.confidence<self.policy.confidence or audio.doa_confidence<self.policy.doa:return False,'low_direction_confidence',age
+        if audio.temporal_stability<self.policy.stability:return False,'direction_not_stable',age
+        if not all(_finite_number(v) for v in (audio.azimuth_deg,audio.azimuth_std_deg)) or not -90.<=audio.azimuth_deg<=90. or not 0.<=audio.azimuth_std_deg<=self.policy.max_spread_deg:
             return False,'uncertain_direction',age
         if not isinstance(audio.sample_sequence,Integral) or isinstance(audio.sample_sequence,bool) or audio.sample_sequence<0:
             return False,'invalid_audio_sequence',age
@@ -133,7 +136,7 @@ class AudioVisualSelector:
         elif fresh:
             if not self.audio_hits:self.audio_since=now
             self.audio_hits+=1;self.last_audio_sequence=audio.sample_sequence
-        return proposed is not None and self.audio_hits>=3 and now-self.audio_since>=.18
+        return proposed is not None and self.audio_hits>=max(3,self.policy.required_hits) and now-self.audio_since>=.18
 
     def update(self,people,*,now,size,audio=None,frame_time=0.):
         observed={gid:list(obs) for gid,obs in people.items() if obs}

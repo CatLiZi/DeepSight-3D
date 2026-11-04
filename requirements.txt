@@ -11,8 +11,8 @@
 #
 # NOTE: uvicorn alone cannot serve WebSockets. Without the `websockets` package
 # (or `wsproto`) it answers every WebSocket upgrade with HTTP 404, and the
-# dashboard goes dead: /ws drives the whole tick loop, so the camera never
-# starts and the controls appear unresponsive. uvicorn[standard] would pull it
+# dashboard cannot receive live state. The real-hardware background loop can
+# continue independently of the browser. uvicorn[standard] would pull it
 # in; it is listed explicitly here so a plain `pip install -r` is enough.
 
 fastapi>=0.110

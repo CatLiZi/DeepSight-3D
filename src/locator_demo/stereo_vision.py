@@ -10,6 +10,7 @@ import time
 import json
 from pathlib import Path
 
+from .audio_policy import DEFAULT_AUDIO_POLICY
 from .camera import FfmpegCameraSnapshot, VisionFrameResult, VisionStatus
 from .capture import StereoCameraCapture
 from .vision import choose_primary_target
@@ -136,6 +137,9 @@ class StereoVisionTracker(FfmpegCameraSnapshot):
 
     def request_calibration_reload(self):
         self._reload_rectification=True
+
+    def set_audio_decision_policy(self,policy):
+        with self._lock:self._audio_decision_policy=policy
 
     def set_audio_guidance(self,estimate):
         with self._lock:self._guidance=estimate
@@ -305,7 +309,12 @@ class StereoVisionTracker(FfmpegCameraSnapshot):
                             m['fixation']=pair.get('fixation')
                     occupied_l={k[0] for k in metric_keys};occupied_r={k[1] for k in metric_keys}
                     matches+= [b for b in aligned if b['left_track'] not in occupied_l and b['right_track'] not in occupied_r]
-                with self._lock:guidance=self._guidance
+                with self._lock:
+                    guidance=self._guidance
+                    policy=getattr(self,'_audio_decision_policy',DEFAULT_AUDIO_POLICY)
+                if self.fusion.selector is not None and self.fusion.selector.policy!=policy:
+                    self.fusion.selector._clear_audio_confirmation(time.perf_counter())
+                    self.fusion.selector.policy=policy
                 result=self.fusion.update(detector_images,per_eye_targets,quality,now=time.perf_counter(),geometric_matches=matches,
                     audio=guidance,frame_time=sample.captured_monotonic)
                 if self.rectifier:

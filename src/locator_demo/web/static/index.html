@@ -87,7 +87,7 @@
 <div class="workflow-strip"><span class="workflow-step"><i>01</i>采集</span><b>→</b><span class="workflow-step"><i>02</i>感知</span><b>→</b><span class="workflow-step"><i>03</i>目标选择</span><b>→</b><span class="workflow-step"><i>04</i>连续控制</span><span class="workflow-caption">视觉主导 · 声音辅助</span></div>
 </div>
 <aside aria-label="声音与运行状态" class="insight-column">
-<article class="panel acoustic-panel"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg aria-hidden="true" class="icon"><use href="#i-wave"></use></svg></span><div><h2>声源定位</h2><p>ACOUSTIC DIRECTION</p></div></div><span class="soft-tag" id="audio-confidence">—</span></header><div class="radar-surface"><canvas height="300" id="direction-canvas" width="420"></canvas></div><div class="audio-primary-metric"><span>当前方向</span><strong id="audio-direction">unknown</strong><span class="mini-badge">±15° 范围可调</span></div><div class="speech-row"><span>人声活动</span><strong id="ui-speech-value">—</strong></div><div class="speech-track"><i id="ui-speech-bar"></i></div><div class="channels-heading"><span>输入通道</span><small>CH2 / CH3 · 两耳</small></div><div aria-label="耳部原始信号电平" class="ear-levels" id="ear-levels"></div><p class="acoustic-state" id="ui-acoustic-state">等待音频输入</p><p class="panel-description" id="ui-core-source">核心方向：等待持续、可靠的语音证据</p><p class="panel-description" id="ui-core-scores">方向证据分综合有效讲话时长、方向质量和近期程度。</p><details class="diagnostic-details"><summary>输入状态与信号诊断<span class="summary-arrow">↗</span></summary><div><div class="metrics">
+<article class="panel acoustic-panel"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg aria-hidden="true" class="icon"><use href="#i-wave"></use></svg></span><div><h2>声源定位</h2><p>ACOUSTIC DIRECTION</p></div></div><span class="soft-tag" id="audio-confidence">—</span></header><div class="radar-surface"><canvas height="300" id="direction-canvas" width="420"></canvas></div><div class="audio-primary-metric"><span>当前方向</span><strong id="audio-direction">unknown</strong><span class="mini-badge">±15° 范围可调</span></div><div class="speech-row"><span>窗内语音证据</span><strong id="ui-speech-value">—</strong></div><div class="speech-track"><i id="ui-speech-bar"></i></div><div class="channels-heading"><span>输入通道</span><small>CH2 / CH3 · 两耳</small></div><div aria-label="耳部原始信号电平" class="ear-levels" id="ear-levels"></div><p class="acoustic-state" id="ui-acoustic-state">等待音频输入</p><p id="ui-audio-decision" class="panel-description" aria-live="polite">等待人声与方向判定</p><p class="panel-description" id="ui-core-source">核心方向：等待持续、可靠的语音证据</p><p class="panel-description" id="ui-core-scores">方向证据分综合有效讲话时长、方向质量和近期程度。</p><details class="diagnostic-details"><summary>输入状态与信号诊断<span class="summary-arrow">↗</span></summary><div><div class="metrics">
 <label>TDOA <strong id="audio-tdoa">0.000000</strong></label>
 <label>能量 <strong id="audio-energy">0.00</strong></label>
 <label>输入 <strong id="audio-device">--</strong></label>
@@ -196,14 +196,21 @@
 <div class="scan-result" id="visual-calibration-result">尚未记录视觉样本</div>
 <div class="scan-result" id="scan-result">未扫描</div>
 <button id="scan-btn">扫描舵机</button></article></div></section>
-<section aria-label="设备与标定" class="workspace-view" hidden="" id="view-devices"><div class="setup-grid"><article class="panel" id="audio-settings"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg aria-hidden="true" class="icon"><use href="#i-wave"></use></svg></span><div><h2>音频设备</h2><p>CAPTURE &amp; CHANNEL MAPPING</p></div></div><span class="soft-tag">四路采集</span></header><p class="panel-description">两耳参与方向估计，身体通道继续保留采集。</p><h3 class="form-section-title">耳部通道与几何</h3><div class="device-config">
-<label>定位输入<select id="ear-mode"><option value="disabled">仅采集</option><option value="ear_pair">头部两耳</option></select></label>
+<section aria-label="设备与标定" class="workspace-view" hidden="" id="view-devices"><div class="setup-grid"><article class="panel" id="audio-settings"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg aria-hidden="true" class="icon"><use href="#i-wave"></use></svg></span><div><h2>音频设备</h2><p>CAPTURE &amp; CHANNEL MAPPING</p></div></div><span class="soft-tag">四路采集</span></header><p class="panel-description">四路独立原始信号参与声学分析，两耳与身体分别估计方向、按可靠性协同。</p><h3 class="form-section-title">两耳与身体通道</h3><div class="device-config">
+<label>定位输入<select id="ear-mode"><option value="disabled">仅采集</option><option value="ear_pair">头部两耳</option><option value="four_mic">四麦协同（两耳＋身体）</option></select></label>
 <label>左耳通道<input id="ear-left-channel" max="4" min="1" placeholder="1–4" type="number"/></label>
 <label>右耳通道<input id="ear-right-channel" max="4" min="1" placeholder="1–4" type="number"/></label>
 <label>两耳间距 mm<input id="ear-spacing-mm" max="500" min="20" step="any" type="number"/></label>
 <label class="inline-check"><input id="ear-map-confirmed" type="checkbox"/>逐耳识别已确认</label>
 <label class="inline-check"><input checked="" id="ear-raw" type="checkbox"/>保留独立原始信号</label>
-<button id="save-ear-config-btn">保存耳部配置</button>
+<label>身体左通道<input id="body-left-channel" max="4" min="1" type="number" value="1"/></label>
+<label>身体右通道<input id="body-right-channel" max="4" min="1" type="number" value="4"/></label>
+<label>身体间距 mm<input id="body-spacing-mm" max="500" min="20" step="any" type="number" value="75.5"/></label>
+<label class="inline-check"><input id="body-map-confirmed" type="checkbox"/>身体左右映射已确认</label>
+<label>Yaw 每度刻度（实测）<input id="body-yaw-scale" min="1" max="30" step="any" placeholder="未标定留空" type="number"/></label>
+  <label>实测正前方反馈刻度<input id="body-yaw-zero" min="500" max="2500" step="any" placeholder="留空沿用水平中位" type="number"/></label>
+<p class="panel-description">实测转角比例与正前方反馈刻度可由三点标定工具求得。填写后，水平转头使用有效反馈约束的轨迹，姿态对齐音频窗口；明显俯仰、反馈异常或缺少时间历史时只保留声学辅助。比例留空时仅在中位合并，不能用追踪增益代替标定。</p>
+<button id="save-ear-config-btn">保存定位配置</button>
 </div><h3 class="form-section-title">声学处理参数</h3><div class="device-config audio-config">
 <label>声道
               <select id="audio-channel-map">
@@ -212,15 +219,15 @@
 </select>
 </label>
 <label class="inline-check"><input checked="" id="vad-enabled-input" type="checkbox"/>VAD</label>
-<label>声音置信度 <input id="audio-threshold-input" max="1" min="0" step="0.01" type="number" value="0.20"/>
+<label>可靠方向综合要求 <input id="audio-threshold-input" max="1" min="0.20" step="0.01" type="number" value="0.20"/>
 </label>
-<label>人声阈值 <input id="speech-threshold-input" max="1" min="0" step="0.01" type="number" value="0.15"/>
+<label>转头/选人人声要求 <input id="speech-threshold-input" max="1" min="0.50" step="0.01" type="number" value="0.50"/>
 </label>
-<label>方向置信度 <input id="doa-threshold-input" max="1" min="0" step="0.01" type="number" value="0.05"/>
+<label>可靠方向要求 <input id="doa-threshold-input" max="1" min="0.20" step="0.01" type="number" value="0.20"/>
 </label>
-<label>连续确认次数 <input id="audio-hits-input" max="5" min="1" step="1" type="number" value="1"/>
+<label>新数据最少次数 <input id="audio-hits-input" max="5" min="1" step="1" type="number" value="1"/>
 </label>
-<button id="save-audio-config-btn">保存声道</button>
+<p id="audio-decision-details" class="panel-description" aria-live="polite">等待判定链路状态</p><p id="audio-policy-summary" class="panel-description">正在读取实际生效门槛。旧配置低于可靠性下限的数值会自动归一到下限。</p><p class="panel-description">“尝试定位”与“允许转头/选人”是不同阶段。语音证据采用当前音频窗内的观测分数，并非说话人概率；达到门槛后还需新鲜数据、稳定方向、核心确认和有效舵机反馈。</p><button id="save-audio-config-btn">保存声道</button>
 </div></article><article class="panel" id="camera-settings"><header class="panel-head"><div class="panel-title"><span class="panel-icon"><svg aria-hidden="true" class="icon"><use href="#i-camera"></use></svg></span><div><h2>相机与跟踪策略</h2><p>CAMERA &amp; TRACKING</p></div></div></header><p class="panel-description">完整保留双目采集，设置每眼处理与目标选择参数。</p><div class="device-config camera-config">
 <label>摄像头
               <select id="camera-device-select">
@@ -367,8 +374,9 @@
 </main>
 </div>
 </div>
-<script src="/static/audio_view.js?v=console-r42-20261028"></script>
-<script src="/static/ui_shell.js?v=console-r43-20261028"></script>
+<script src="/static/audio_view.js?v=console-r44-20261029"></script>
+<script src="/static/array_view.js?v=console-r44-20261029"></script>
+<script src="/static/ui_shell.js?v=console-r44-20261029"></script>
 <script src="/static/fixation_view.js?v=console-r43-20261028"></script>
-<script src="/static/app.js?v=console-r43-20261028"></script>
+<script src="/static/app.js?v=console-r44-20261029"></script>
 </body></html>

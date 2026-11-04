@@ -47,7 +47,7 @@ class YawRangeTests(unittest.TestCase):
         self.assertEqual((example.yaw_min,example.yaw_center,example.yaw_max),(800,1500,2200))
         self.assertEqual((example.pitch_min,example.pitch_max),(1200,1800))
         path=PROJECT/'locator_demo_settings.json'
-        if not path.is_file(): path=PROJECT/'configs/panda-final-r43.json'
+        if not path.is_file(): path=PROJECT/'configs/panda-assembled-r51.example.json'
         saved=json.loads(path.read_text(encoding='utf-8'))['axis_limits']
         validate_axis_limits(saved)
         self.assertEqual(asdict(load_settings(path).axis_limits),saved)

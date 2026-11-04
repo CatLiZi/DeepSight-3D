@@ -5,6 +5,7 @@ metadata and license are kept alongside the local model. No network calls.
 """
 from __future__ import annotations
 from pathlib import Path
+from collections import deque
 import time
 import numpy as np
 from scipy.signal import firwin,lfilter
@@ -30,6 +31,8 @@ class StreamingSpeechVAD:
         self.pending=np.empty((0,2),np.float32);self.last_end=None
         self.probability=0.;self.per_ear=[0.,0.];self.completed=0
         self.resample_state=np.zeros((len(self.taps)-1,2));self.resample_count=0
+        self._window_evidence=deque(maxlen=64)
+        self.analysis_probability=0.
 
     def update(self,pair_pcm,*,sample_start):
         if self.session is None:return None
@@ -60,12 +63,45 @@ class StreamingSpeechVAD:
             self.context=chunk[:,-64:].copy();self.per_ear=np.asarray(probability).reshape(-1).tolist()
             p=float(max(self.per_ear))
             self.probability=p if self.completed==1 else .45*self.probability+.55*p
+            # Timestamp each actual inference on the input PCM clock, not the
+            # polling clock. The direction estimator uses a longer PCM window
+            # than one neural chunk; its tail alone cannot describe that window.
+            chunk_end=end-len(self.pending)*self.factor
+            self._window_evidence.append((chunk_end,self.probability))
         return self.probability
+
+    def probability_for_window(self, *, sample_start, sample_end):
+        """Measured speech support inside this exact, at most 192 ms PCM window.
+
+        This is a peak of observed chunk scores, not a new calibrated speech
+        probability, silence extrapolation, or a cached direction. Invalid,
+        future, stale or overlong queries cannot borrow old voice evidence.
+        """
+        if self.session is None:return None
+        if (isinstance(sample_start,bool) or isinstance(sample_end,bool)
+                or not isinstance(sample_start,(int,np.integer))
+                or not isinstance(sample_end,(int,np.integer))
+                or sample_start<0 or sample_end!=self.last_end
+                or not 0<sample_end-sample_start<=round(.192*self.sample_rate)):
+            self.analysis_probability=0.
+            return 0.
+        self.analysis_probability=max((p for end,p in self._window_evidence
+            if sample_start<end<=sample_end),default=0.)
+        return self.analysis_probability
 
     def metrics(self):
         return {'backend':'silero_onnx_cpu' if self.session is not None else 'spectral_fallback',
                 'available':self.session is not None,'speech_probability':round(self.probability,4),
+                'instantaneous_speech_probability':round(self.probability,4),
+                'analysis_window_speech_support':round(self.analysis_probability,4),
+                'analysis_score_kind':'maximum measured chunk score inside current PCM window, at most 192 ms',
                 'per_ear_probability':self.per_ear,'inference_calls':self.calls,
                 'mean_inference_ms':self.total_ms/max(1,self.calls),'completed_chunks':self.completed,
                 'error':self.error,'model_path':str(self.model_path),'trained_here':False,
                 'channels':'selected ears only; no body channels','output':'speech activity, not speaker identity'}
+
+
+def update_window_probability(vad,pair_pcm,*,sample_start):
+    probability=vad.update(pair_pcm,sample_start=sample_start)
+    window=getattr(vad,'probability_for_window',None)
+    return window(sample_start=sample_start,sample_end=sample_start+len(pair_pcm)) if callable(window) else probability

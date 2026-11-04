@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
+from .origin_guard import trusted_loopback_request
 
 from ..asd import RuleBasedAsdBackend, make_asd_backend
 from ..audio import (
@@ -28,6 +29,8 @@ from ..audio_motion import qualify_audio_during_motion
 from ..dominant_sound import DominantSoundLock
 from ..audio_device import FfmpegAudioLocalizer, SimulatedAudioLocalizer
 from ..array_audio import WasapiArrayAudio
+from ..array_pose import FeedbackAlignedYaw
+from ..audio_policy import AudioDecisionPolicy,DEFAULT_AUDIO_POLICY,admit_audio,explain_audio_decision
 from ..camera import FfmpegCameraSnapshot, SimulatedVisionTracker, VisionStatus
 from ..devices import list_dshow_devices, list_wasapi_inputs
 from ..stereo_vision import StereoVisionTracker
@@ -170,12 +173,19 @@ class AudioCaptureConfigRequest(BaseModel):
     usb_vid: str = Field("EF09", pattern=r"^[0-9a-fA-F]{4}$")
     usb_pid: str = Field("459D", pattern=r"^[0-9a-fA-F]{4}$")
     wasapi_raw: bool = True
-    localization_mode: Literal["disabled", "ear_pair"] = "disabled"
+    localization_mode: Literal["disabled", "ear_pair", "four_mic"] = "disabled"
     ear_left_channel: int | None = Field(None, ge=1, le=4)
     ear_right_channel: int | None = Field(None, ge=1, le=4)
     ear_mapping_confirmed: bool = False
     ear_spacing_m: float | None = Field(None, ge=.02, le=.5)
     ear_delay_offset_us: float = Field(0, ge=-1000, le=1000)
+    body_left_channel: int = Field(1, ge=1, le=4)
+    body_right_channel: int = Field(4, ge=1, le=4)
+    body_mapping_confirmed: bool = False
+    body_spacing_m: float = Field(.0755, ge=.02, le=.5)
+    body_delay_offset_us: float = Field(0, ge=-1000, le=1000)
+    body_yaw_units_per_degree: float | None = Field(None, ge=1, le=30)
+    body_yaw_zero_position: float | None = Field(None, ge=500, le=2500)
 
     @model_validator(mode="after")
     def check_ear_pair(self):
@@ -210,8 +220,8 @@ class AxisLimitsConfigRequest(BaseModel):
 class AudioProcessingConfigRequest(BaseModel):
     vad_enabled: bool = True
     audio_confidence_threshold: float = Field(0.20, ge=0.0, le=1.0)
-    speech_confidence_threshold: float = Field(0.15, ge=0.0, le=1.0)
-    doa_confidence_threshold: float = Field(0.05, ge=0.0, le=1.0)
+    speech_confidence_threshold: float = Field(DEFAULT_AUDIO_POLICY.speech, ge=0.0, le=1.0)
+    doa_confidence_threshold: float = Field(DEFAULT_AUDIO_POLICY.doa, ge=0.0, le=1.0)
     required_audio_hits: int = Field(1, ge=1, le=5)
     denoise_enabled: bool = False
     denoise_dry_mix: float = Field(0.15, ge=0.0, le=1.0)
@@ -687,7 +697,7 @@ class DemoRuntime:
 
     def _record_audio_association(self, now):
         raw=self.last_raw_audio
-        if raw.speech_confidence<.5:
+        if raw.speech_confidence<AudioDecisionPolicy.from_config(self.audio_processing).speech:
             return
         selection=self.last_binocular.get('target_selection',{})
         key=(raw.direction.value,raw.noise_state,self.last_audio.noise_state,selection.get('selected_person_id'))
@@ -1096,6 +1106,52 @@ class DemoRuntime:
         self.pose = self.logic.clamp_pose(estimated)
         self.head = self._make_head()
 
+    def _audio_pose_context(self, *, observed_monotonic=None, analysis_window_s=.192):
+        """Cached position only: never query or move a servo for audio analysis."""
+        if not self._motion_pose_synced or not getattr(self.bus,'connected',False):
+            return None
+        rows={sid:{**row,'valid':row.get('outcome')=='valid'}
+              for sid,row in dict(getattr(self.bus,'_position_reads',{})).items()}
+        # The 1 Hz motion monitor updates runtime feedback, not the bus cache.
+        # Prefer the newest response INCLUDING invalid ones: a newer failure
+        # must not be hidden by an old successful startup/read-button response.
+        for sid,row in dict(getattr(self,'_feedback',{})).items():
+            old=rows.get(sid)
+            if old is None or row.get('ts',0)>=old.get('ts',0):rows[sid]=dict(row)
+        now=time.time(); monotonic=time.perf_counter()
+        yaw=rows.get(int(self.config.yaw_id)) if self.config.yaw_id is not None else None
+        pitch=rows.get(int(self.config.pitch_id))
+        if not yaw or not pitch:
+            return None
+        for row in (yaw,pitch):
+            if (row.get('valid') is not True or row.get('position') is None
+                    or not isinstance(row.get('ts'),(float,int)) or not 0<=now-row['ts']<=1.5):
+                return None
+        if not (self.axis_limits.yaw_min<=yaw['position']<=self.axis_limits.yaw_max
+                and self.axis_limits.pitch_min<=pitch['position']<=self.axis_limits.pitch_max):
+            return None
+        scale=self.audio_capture.body_yaw_units_per_degree
+        if scale is None:
+            if (getattr(self.head,'is_moving',False)
+                    or abs(yaw['position']-self.axis_limits.yaw_center)>8
+                    or abs(pitch['position']-self.axis_limits.pitch_center)>10):
+                return None
+            angle=0.;basis='confirmed_neutral_pose_nominal_pair_alignment'
+        else:
+            pose=getattr(self.head,'estimated_pose',self.pose)
+            if not hasattr(self,'_body_yaw_pose'):self._body_yaw_pose=FeedbackAlignedYaw()
+            zero=getattr(self.audio_capture,'body_yaw_zero_position',None)
+            zero=self.axis_limits.yaw_center if zero is None else zero
+            return self._body_yaw_pose.resolve(now=monotonic,wall_now=now,
+                observed=monotonic if observed_monotonic is None else observed_monotonic,
+                window_s=analysis_window_s,yaw=yaw,pitch=pitch,estimated_yaw=pose.yaw,
+                moving=bool(getattr(self.head,'is_moving',False)),scale=scale,zero=zero,
+                sign=self.direction.yaw_left_sign,yaw_limits=(self.axis_limits.yaw_min,self.axis_limits.yaw_max),
+                pitch_center=self.axis_limits.pitch_center,
+                session=(id(self.bus),getattr(self.bus,'_session_generation',None),id(self.head),scale,zero,self.direction.yaw_left_sign))
+        return dict(valid=True,head_yaw_deg=angle,basis=basis,
+                    observed_monotonic=monotonic-(now-min(yaw['ts'],pitch['ts'])))
+
     def _make_audio(self):
         if self.config.simulated:
             return SimulatedAudioLocalizer()
@@ -1104,7 +1160,11 @@ class DemoRuntime:
                                      sample_rate=self.audio_capture.sample_rate, block_ms=self.audio_capture.block_ms,
                                      usb_vid=self.audio_capture.usb_vid, usb_pid=self.audio_capture.usb_pid,
                                      wasapi_raw=self.audio_capture.wasapi_raw,ear_config=self.audio_capture.ear_pair_config(),
+                                     body_config=(self.audio_capture.body_pair_config()
+                                                  if self.audio_capture.localization_mode=='four_mic' else None),
+                                     pose_provider=self._audio_pose_context,
                                      speech_vad=self.audio_processing.vad_enabled,
+                                     decision_policy=AudioDecisionPolicy.from_config(self.audio_processing),
                                      recording_enabled=self.audio_processing.recording_enabled,
                                      output_dir=self.audio_processing.denoise_output_dir)
             source.diagnostic_sink = lambda event, detail: self.journal.record(event, detail,
@@ -1462,9 +1522,12 @@ class DemoRuntime:
         if policy_changed:
             self._invalidate_motion_context()
         self.audio_processing = updated
+        if hasattr(self.vision,'set_audio_decision_policy'):
+            self.vision.set_audio_decision_policy(AudioDecisionPolicy.from_config(updated))
         if policy_changed:
             self.state_machine = self._make_state_machine()
         if isinstance(self.audio, WasapiArrayAudio):
+            self.audio.set_decision_policy(AudioDecisionPolicy.from_config(updated))
             self.audio._output_dir = Path(self.audio_processing.denoise_output_dir) if self.audio_processing.denoise_output_dir else None
             self.audio.set_recording_enabled(self.audio_processing.recording_enabled)
             if vad_changed:
@@ -1475,6 +1538,8 @@ class DemoRuntime:
 
     def _set_vision_selection_policy(self):
         if not hasattr(self.vision,'set_guided_mode'):return
+        if hasattr(self.vision,'set_audio_decision_policy'):
+            self.vision.set_audio_decision_policy(AudioDecisionPolicy.from_config(self.audio_processing))
         strategy=self.vision_processing.tracking_strategy
         if strategy=='visual_priority':
             self.vision.set_guided_mode(True,visual_priority=True,
@@ -1525,10 +1590,16 @@ class DemoRuntime:
     def snapshot(self, *, include_frame: bool = True) -> dict[str, Any]:
         mode = DemoMode.REFRAME_VISUAL.value if self._reframe_active else self.last_state.mode.value
         audio_comparison = self.audio.comparison_metrics() if hasattr(self.audio, "comparison_metrics") else None
+        audio_capture_metrics=self.audio.capture_metrics() if hasattr(self.audio,'capture_metrics') else None
+        decision_policy=AudioDecisionPolicy.from_config(self.audio_processing)
+        audio_decision=explain_audio_decision(audio=self.last_audio,raw=self.last_raw_audio,capture=audio_capture_metrics or {},
+            policy=decision_policy,running=self.running,audio_enabled=self.features.audio_enabled,visual_enabled=self.features.visual_enabled,
+            moving=bool(getattr(self.head,'is_moving',False)),fault=self._motion_fault,core=self._core_sound_status(),now=time.perf_counter(),
+            steering_reason=self._audio_seek_stop_reason)
         ticks = list(self._control_times)
         tick_hz = (len(ticks) - 1) / (ticks[-1] - ticks[0]) if len(ticks) > 1 and ticks[-1] > ticks[0] else 0
         return {
-            "algorithm_revision": "R43",
+            "algorithm_revision": "R51",
             "servo_connection": {'port':self.config.port,'yaw_id':self.config.yaw_id,
                 'pitch_id':self.config.pitch_id,'discovery':dict(self._servo_discovery)},
             "stereo_preflight": dict(self._stereo_preflight),
@@ -1550,7 +1621,9 @@ class DemoRuntime:
             "features": asdict(self.features),
             "pose": asdict(self.pose),
             "audio": {
-                "capture": self.audio.capture_metrics() if hasattr(self.audio, "capture_metrics") else None,
+                "capture": audio_capture_metrics,
+                "decision_policy": decision_policy.describe(),
+                "decision": audio_decision,
                 "raw_observation": {
                     **asdict(self.last_raw_audio),
                     "direction": self.last_raw_audio.direction.value,
@@ -2002,7 +2075,7 @@ class DemoRuntime:
         )
         self.last_raw_audio = raw_audio
         self.last_audio,self._audio_motion_context = qualify_audio_during_motion(
-            raw_audio,active=now < self.motor_guard_until_s)
+            raw_audio,active=now < self.motor_guard_until_s,policy=AudioDecisionPolicy.from_config(self.audio_processing))
         guided=self.vision_processing.tracking_strategy in ('audio_visual_guided','visual_priority')
         if (not isinstance(self.audio, WasapiArrayAudio)
                 and not self.audio_processing.vad_enabled and not self.last_audio.motor_suppressed
@@ -2019,7 +2092,11 @@ class DemoRuntime:
                 noise_state="vad_disabled",
                 azimuth_deg=self.last_audio.azimuth_deg,
             )
-        dominant_mode = self.audio_capture.localization_mode == 'ear_pair' and self.audio_capture.ear_mapping_confirmed
+        dominant_mode = self.audio_capture.localization_mode in ('ear_pair','four_mic') and self.audio_capture.ear_mapping_confirmed
+        if dominant_mode:
+            self.last_audio,policy_reason=admit_audio(self.last_audio,AudioDecisionPolicy.from_config(self.audio_processing))
+            if policy_reason!='usable_direction':
+                self._audio_motion_context.update(admitted=False,reason=policy_reason)
         core_context = (generation, self.features.audio_enabled, self.features.visual_enabled,
             self.direction.yaw_left_sign, self.axis_limits.yaw_min, self.axis_limits.yaw_max, dominant_mode,
             id(self.audio), id(self.head), tuple(sorted(asdict(self.audio_capture).items())),
@@ -2034,10 +2111,13 @@ class DemoRuntime:
             self._core_motion_reason = 'awaiting_current_core_evidence'
             self._dominant_context = core_context
         if dominant_mode and self.features.audio_enabled:
+            self._dominant_sound.policy=AudioDecisionPolicy.from_config(self.audio_processing)
             parameters = self._profile_params()
             self._dominant_sound.update(self.last_audio, now=time.perf_counter(),
                 yaw=getattr(self.head, 'estimated_pose', self.pose).yaw,
-                units_per_degree=float(parameters['audio_seek_max_step'])/float(parameters['audio_seek_full_scale_deg']),
+                # Same physical yaw scale as body-to-head geometry. The legacy
+                # profile gain controls pursuit steps, never a stored angle.
+                units_per_degree=self.audio_capture.body_yaw_units_per_degree,
                 left_sign=self.direction.yaw_left_sign, yaw_min=self.axis_limits.yaw_min,
                 yaw_max=self.axis_limits.yaw_max, command_window=int(parameters['audio_seek_window']))
         if hasattr(self.vision,'set_audio_guidance'):
@@ -2169,7 +2249,8 @@ class DemoRuntime:
                 self._core_motion_authorized = True
                 self._core_motion_reason = 'confirmed_core_motion'
             elif not self._core_motion_authorized:
-                self._core_motion_reason = 'awaiting_current_core_evidence'
+                self._core_motion_reason = (self._dominant_sound.reason if not self._dominant_sound.geometry_valid
+                                            else 'awaiting_current_core_evidence')
         acoustic_fallback = (dominant_mode and self.features.audio_enabled and self.audio_search_allowed
                              and not self.last_state.target_confirmed and self._core_motion_authorized)
         self._reframe_active = False
@@ -2325,17 +2406,26 @@ class DemoRuntime:
                     and not self.last_state.target_confirmed and visible_acquire_target is None):
                 core = self._dominant_sound.snapshot()
                 if not core['locked']:
-                    self._audio_seek_stop_reason = 'collecting_core_direction'
+                    self._audio_seek_stop_reason = (core['reason'] if not core['geometry_valid']
+                                                   else 'collecting_core_direction')
                 elif not self._core_motion_authorized:
                     self._audio_seek_stop_reason = 'awaiting_current_core_evidence'
                 elif motor_settling:
                     self._audio_seek_stop_reason = 'finishing_core_motion'
                 else:
-                    next_pose = self.logic.clamp_pose(HeadPose(core['goal_yaw'], self.pose.pitch))
+                    current_yaw = getattr(self.head, 'estimated_pose', self.pose).yaw
+                    staged_yaw = self._dominant_sound.next_yaw(
+                        current_yaw,
+                        max_step=int(params['audio_seek_max_step']))
+                    next_pose = (self.pose if staged_yaw is None else
+                                 self.logic.clamp_pose(HeadPose(staged_yaw, self.pose.pitch)))
                     audio_seek_commanded = dominant_commanded = next_pose != self.pose
-                    self._audio_seek_stop_reason = ('core_goal_submitted' if dominant_commanded else
-                        'yaw_limit' if core['goal_yaw'] in (self.axis_limits.yaw_min, self.axis_limits.yaw_max) else
-                        'core_goal_reached' if abs(getattr(self.head, 'estimated_pose', self.pose).yaw-core['goal_yaw'])<=4 else 'finishing_core_motion')
+                    self._audio_seek_stop_reason = ('invalid_pose_model' if staged_yaw is None else
+                        'core_goal_submitted' if dominant_commanded and staged_yaw == core['goal_yaw'] else
+                        'core_step_submitted' if dominant_commanded else
+                        'yaw_limit' if core['goal_yaw'] in (self.axis_limits.yaw_min, self.axis_limits.yaw_max)
+                            and abs(current_yaw-core['goal_yaw'])<=4 else
+                        'core_goal_reached' if abs(current_yaw-core['goal_yaw'])<=4 else 'finishing_core_motion')
                     if dominant_commanded:
                         self._reset_reframe()
                         move_time_ms = int(params['audio_seek_move_time_ms'])
@@ -2496,6 +2586,10 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
         identity = uuid.uuid4().hex[:12]
         token = request_id.set(identity)
         try:
+            if not trusted_loopback_request(request):
+                runtime.log('http_rejected_origin', {'method':request.method,'path':request.url.path})
+                return JSONResponse({'detail':'请求来源与本机控制台不一致','request_id':identity},
+                                    status_code=403,headers={'X-Request-ID':identity})
             response = await call_next(request)
             if response.status_code >= 400:
                 runtime.log('http_request_error', {'method': request.method, 'path': request.url.path, 'status': response.status_code})
@@ -2594,9 +2688,11 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
 
     @app.get("/api/stereo-calibration/board.pdf")
     async def stereo_board_pdf():
-        path=Path(__file__).resolve().parents[3]/"output/calibration/stereo-charuco-A4-20mm.pdf"
+        project=Path(__file__).resolve().parents[3]
+        path=project/"output/calibration/stereo-charuco-A4-20mm.pdf"
         if not path.exists():
-            path=Path(__file__).resolve().parents[4]/"output/calibration/stereo-charuco-A4-20mm.pdf"
+            # Older installations kept output beside the repository.
+            path=project.parent/"output/calibration/stereo-charuco-A4-20mm.pdf"
         if not path.exists():
             raise HTTPException(status_code=404,detail="打印文件尚未生成")
         return FileResponse(path,media_type="application/pdf",filename=path.name)
@@ -2845,6 +2941,9 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
 
     @app.websocket("/ws")
     async def websocket(websocket: WebSocket):
+        if not trusted_loopback_request(websocket):
+            await websocket.close(code=1008,reason='请求来源与本机控制台不一致')
+            return
         await websocket.accept()
         next_frame_s = 0.0
         try:

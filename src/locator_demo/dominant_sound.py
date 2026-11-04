@@ -1,11 +1,13 @@
 """Time-weighted acoustic evidence, a persistent target, and switch hysteresis.
 
 Scores rank reliable voiced observations; they are not speaker identity or
-semantic importance probabilities. The position model uses the existing control
-gain in servo units, not a measured degree-to-servo calibration. No historical
-estimate is emitted as a new AudioEstimate or sent to visual speaker selection.
+semantic importance probabilities. Position geometry uses the configured
+physical ticks-per-degree scale; delivery steps are bounded independently.
+No historical estimate is emitted as a new AudioEstimate or sent to visual
+speaker selection. A specification-based scale is not a field calibration.
 """
 from collections import deque
+from .audio_policy import DEFAULT_AUDIO_POLICY
 from dataclasses import dataclass
 import math
 from numbers import Integral, Real
@@ -40,6 +42,7 @@ class DominantSoundLock:
     idle_replace_s = 1.0
 
     def __init__(self):
+        self.policy=DEFAULT_AUDIO_POLICY
         self.reset()
 
     def reset(self):
@@ -50,6 +53,7 @@ class DominantSoundLock:
         self.next_id = 1
         self.core_id = None
         self.goal_yaw = None
+        self.goal_limited = False
         self.last_goal_update = 0.
         self.challenger = None
         self.challenger_since = self.challenger_last = 0.
@@ -63,9 +67,11 @@ class DominantSoundLock:
         self.left_sign = 1
         self.limits = (800, 2200)
         self.command_window = 340
+        self.geometry_valid = False
+        self._geometry_key = None
 
     @staticmethod
-    def _quality(audio, now):
+    def _quality(audio, now,policy=DEFAULT_AUDIO_POLICY):
         direction = getattr(getattr(audio, 'direction', None), 'value', getattr(audio, 'direction', None))
         if direction not in ('left', 'right', 'center', 'left_front', 'right_front') or audio.motor_suppressed:
             return None
@@ -76,9 +82,9 @@ class DominantSoundLock:
         speech, confidence, doa, stability, spread, angle, observed = values
         if not all(0 <= v <= 1 for v in (speech, confidence, doa, stability)):
             return None
-        if (speech < .5 or min(confidence, doa) < .2 or stability < .5 or
-                not 0 <= spread <= 25 or abs(angle) > 90 or observed <= 0 or
-                not -.02 <= now - observed <= .35):
+        if (speech < policy.speech or confidence < policy.confidence or doa < policy.doa or stability < policy.stability or
+                not 0 <= spread <= policy.max_spread_deg or abs(angle) > 90 or observed <= 0 or
+                not -.02 <= now - observed <= policy.freshness_s):
             return None
         if audio.noise_state in {'noise', 'quiet', 'fan_or_motor', 'low_band_noise', 'denoise_guard',
                                   'ambiguous_delay', 'low_coherence', 'direction_transition', 'stale_audio',
@@ -116,18 +122,29 @@ class DominantSoundLock:
                 del self.tracks[identity]
 
     def _new_goal(self, track, now):
-        # A bounded, finite position is stored once. Silence never adds another
-        # old relative angle to it. New reliable observations can refine it.
-        value = max(self.current_yaw - self.command_window,
-                    min(self.current_yaw + self.command_window, track.center))
-        self.goal_yaw = round(max(self.limits[0], min(self.limits[1], value)))
+        # Store the full physical destination, bounded by the software travel.
+        # A per-command cap must not truncate a destination that must survive
+        # the end of a short utterance. Silence never adds an old angle again.
+        value = max(self.limits[0], min(self.limits[1], track.center))
+        self.goal_yaw = round(value)
+        self.goal_limited = value != track.center
         self.last_goal_update = now
+
+    def next_yaw(self, current_yaw, *, max_step):
+        """One bounded delivery step toward the saved goal; no new evidence."""
+        if (not self.geometry_valid or self.goal_yaw is None or
+                not all(finite(v) for v in (current_yaw, max_step)) or max_step < 1 or
+                not self.limits[0] <= current_yaw <= self.limits[1]):
+            return None
+        cap = min(int(max_step), int(self.command_window))
+        value = max(current_yaw-cap, min(current_yaw+cap, self.goal_yaw))
+        return round(max(self.limits[0], min(self.limits[1], value)))
 
     def _choose(self, now, observed_id):
         # Acquisition and competition are different situations. A single
         # reliable new source need not defeat an absent incumbent.
         recent=[t for t in self.tracks.values() if now-t.seen<=.25]
-        quick=[t for t in recent if t.observations>=3 and t.duration+1e-9>=self.first_active_s
+        quick=[t for t in recent if t.observations>=max(3,self.policy.required_hits) and t.duration+1e-9>=self.first_active_s
                and t.weight>=self.first_weight_s and t.weight/max(t.duration,.001)>=.3]
         quick.sort(key=lambda t:t.weight,reverse=True)
         if quick:
@@ -145,20 +162,20 @@ class DominantSoundLock:
         minimum_observations = 3 if self.core_id is None else 4
         ranked = sorted((t for t in self.tracks.values()
                          if t.duration + 1e-9 >= minimum_duration and
-                         t.weight >= self.minimum_weight_s and t.observations >= minimum_observations),
+                         t.weight >= self.minimum_weight_s and t.observations >= max(minimum_observations,self.policy.required_hits)),
                         key=lambda t: (t.weight, -t.id), reverse=True)
         if not ranked:
             return
         best = ranked[0]
         if self.core_id is None:
-            if best.duration + 1e-9 >= self.minimum_active_s and best.weight >= self.minimum_weight_s and best.observations >= 3:
+            if best.duration + 1e-9 >= self.minimum_active_s and best.weight >= self.minimum_weight_s and best.observations >= max(3,self.policy.required_hits):
                 self.core_id = best.id
                 self._new_goal(best, now)
                 self.reason = 'core_direction_locked'
             return
         core = self.tracks[self.core_id]
         stronger = (best.id != self.core_id and best.duration + 1e-9 >= self.challenge_active_s and
-                    best.weight >= self.minimum_weight_s and best.observations >= 4 and
+                    best.weight >= self.minimum_weight_s and best.observations >= max(4,self.policy.required_hits) and
                     best.weight > core.weight * self.switch_ratio + self.switch_margin_s)
         if not stronger:
             self.challenger = None
@@ -189,9 +206,19 @@ class DominantSoundLock:
     def update(self, audio, *, now, yaw, units_per_degree, left_sign, yaw_min, yaw_max, command_window):
         self.live_matches_core = False
         self.fresh_core_observation = False
-        if not all(finite(v) for v in (now, yaw, units_per_degree)) or units_per_degree <= 0 or left_sign not in (-1, 1):
-            self.reason = 'invalid_pose_model'
+        if (not all(finite(v) for v in (now, yaw, units_per_degree, yaw_min, yaw_max, command_window)) or
+                not 1 <= units_per_degree <= 30 or isinstance(left_sign, bool) or left_sign not in (-1, 1) or
+                not yaw_min < yaw_max or not yaw_min <= yaw <= yaw_max or command_window < 1):
+            # Invalid geometry cannot retain an actionable goal from a previous
+            # scale. In particular, never substitute a pursuit-speed gain here.
+            self.reset()
+            self.reason = 'yaw_angle_calibration_missing' if units_per_degree is None else 'invalid_pose_model'
             return self.snapshot()
+        geometry_key = (float(units_per_degree), left_sign, yaw_min, yaw_max)
+        if self._geometry_key is not None and self._geometry_key != geometry_key:
+            self.reset()
+        self._geometry_key = geometry_key
+        self.geometry_valid = True
         self.current_yaw = float(yaw)
         self.units_per_degree = float(units_per_degree)
         self.left_sign = left_sign
@@ -202,7 +229,7 @@ class DominantSoundLock:
         observed = getattr(audio, 'observed_monotonic', None)
         sequence = getattr(audio, 'sample_sequence', None)
         identity_valid = (finite(observed) and observed > 0 and isinstance(sequence, Integral) and
-                          not isinstance(sequence, bool) and sequence >= 0 and -.02 <= now - observed <= .35)
+                          not isinstance(sequence, bool) and sequence >= 0 and -.02 <= now - observed <= self.policy.freshness_s)
         if not identity_valid:
             self.reason = 'holding_without_current_direction' if self.core_id is not None else 'awaiting_fresh_direction'
             return self.snapshot()
@@ -223,7 +250,7 @@ class DominantSoundLock:
             self._summarize(now)
         if fresh:
             self.watermark = key
-        quality = self._quality(audio, now)
+        quality = self._quality(audio, now,self.policy)
         if quality is None:
             self.reason = 'holding_without_current_direction' if self.core_id is not None else 'collecting_direction_evidence'
             return self.snapshot()
@@ -268,7 +295,10 @@ class DominantSoundLock:
             current_support_s=round(core.duration, 3) if core else 0.,
             historical=bool(core and not self.live_matches_core),
             score_kind='recency_weighted_voiced_time_not_identity_probability',
-            position_model='existing_control_gain_in_servo_units_not_angle_calibration',
+            position_model='configured_physical_yaw_scale_not_field_verified',
+            geometry_valid=self.geometry_valid,
+            units_per_degree=self.units_per_degree if self.geometry_valid else None,
+            goal_limited=self.goal_limited, command_window_ticks=self.command_window,
             policy=dict(window_s=self.window_s, decay_s=self.decay_s, minimum_active_s=self.minimum_active_s,
                 first_active_s=self.first_active_s,first_weight_s=self.first_weight_s,idle_replace_s=self.idle_replace_s,
                 switch_ratio=self.switch_ratio, switch_margin_s=self.switch_margin_s,

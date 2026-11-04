@@ -141,7 +141,8 @@ class CoreRuntimeTests(unittest.TestCase):
         self.setUp_fixture()
         r = self.runtime
         r.audio_capture = replace(r.audio_capture, localization_mode='ear_pair', ear_left_channel=2,
-            ear_right_channel=3, ear_mapping_confirmed=True, ear_spacing_m=.1355)
+            ear_right_channel=3, ear_mapping_confirmed=True, ear_spacing_m=.1355,
+            body_yaw_units_per_degree=5.)  # Explicit simulated geometry, not a pursuit profile.
         r.features = replace(r.features, visual_enabled=False)
         r.direction = replace(r.direction, yaw_left_sign=1)
         r.logic = r._make_logic()
@@ -196,6 +197,12 @@ class CoreRuntimeTests(unittest.TestCase):
         goal = state['audio']['core_source']['goal_yaw']
         self.head.is_moving = False
         state = self.tick_voice(unknown=True)
+        # Delivery is staged independently of the full physical destination.
+        self.assertLessEqual(abs(self.commands[-1].yaw-1500),
+                             self.runtime._profile_params()['audio_seek_max_step'])
+        for _ in range(3):
+            self.head.estimated_pose = self.runtime.pose
+            state = self.tick_voice(unknown=True)
         self.assertEqual(self.commands[-1].yaw,goal)
         self.assertEqual(state['audio']['direction'],'unknown')
         self.assertTrue(state['audio']['core_source']['historical'])

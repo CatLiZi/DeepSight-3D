@@ -19,9 +19,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--original-only', action='store_true')
     args = parser.parse_args()
-    original_path = PROJECT.parent / 'hardware_inventory/regression-repair-20261026/original-26.json'
-    if not original_path.is_file():
-        original_path = PROJECT / 'tests/fixtures/original-regression-26.json'
+    original_path = PROJECT / 'tests/fixtures/original-regression-26.json'
     original = json.loads(original_path.read_text(encoding='utf-8'))
     ids = [item['id'] for item in original]
     suite = (unittest.defaultTestLoader.loadTestsFromNames(ids) if args.original_only

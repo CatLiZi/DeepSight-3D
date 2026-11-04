@@ -1,5 +1,5 @@
 {
-  "status": "ear_and_body_channel_mapping_confirmed_geometry_incomplete",
+  "status": "four_channel_pair_fusion_r50_configured",
   "source": "user_measurements_and_assembly_photos_20261028",
   "coordinate_reference": "bear_own_left_and_right",
   "raw_capture": {
@@ -22,8 +22,7 @@
     "left_channel": 1,
     "right_channel": 4,
     "mapping_confirmed": true,
-    "spacing_m": 0.0755,
-    "evidence": "body-channel-confirmation.json"
+    "spacing_m": 0.0755
   },
   "cross_head_body": {
     "distance_range_m": [
@@ -38,29 +37,33 @@
     },
     "head_body_geometry_changes_with_pan_tilt": true,
     "reference_software_limits": {
-      "yaw_min": 800,
+      "yaw_min": 1404,
       "yaw_center": 1952,
-      "yaw_max": 2200,
-      "pitch_min": 1200,
+      "yaw_max": 2500,
+      "pitch_min": 1255,
       "pitch_center": 1555,
-      "pitch_max": 1800
+      "pitch_max": 1855
     }
   },
-  "active_localization": "ear_pair",
-  "body_channels_used_for_steering": false,
+  "active_localization": "four_mic",
+  "body_channels_used_for_steering": "conditional_common_frame_only",
   "rigid_four_microphone_geometry_calibrated": false,
   "needs_before_four_mic_fusion": [
-    "measure microphone 3D positions and head rotation pivot, or validate pose-dependent geometry",
-    "validate delay signs and noise for both pairs"
-  ],
-  "photos": [
-    "assembled-bear.jpg",
-    "microphone-measurements.png"
+    "Validate pair fusion while the head moves in yaw",
+    "Measure complete 3D microphone and pivot geometry before allowing body direction fusion outside the current pitch gate",
+    "Validate delay signs, competing sources and physical-angle accuracy under realistic noise"
   ],
   "channel_roles": {
     "1": "body_left",
     "2": "head_left_ear",
     "3": "head_right_ear",
     "4": "body_right"
-  }
+  },
+  "body_spectral_and_voice_assistance_enabled": true,
+  "four_mic_full_3d_geometry_verified": false,
+  "loaded_runtime_verified": true,
+  "loaded_runtime_verified_date": "2026-11-04",
+  "position_scale_basis": "servo specification 2000 / 270 ticks per degree; not measured in assembled rig",
+  "body_yaw_units_per_degree": 7.407407407407407,
+  "body_yaw_zero_position": 1952
 }

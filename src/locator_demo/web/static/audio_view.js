@@ -13,6 +13,10 @@
       const observation = audio?.raw_observation;
       const identityValid = !observation || (finite(observation.observed_monotonic) && observation.observed_monotonic>0 &&
         Number.isInteger(observation.sample_sequence) && observation.sample_sequence>=0);
+      const policy=audio?.decision_policy || {};
+      const speechMin=finite(policy.speech)?clamp(policy.speech,.5,1):.5;
+      const qualityMin=finite(policy.confidence)?clamp(policy.confidence,.2,1):.2;
+      const doaMin=finite(policy.doa)?clamp(policy.doa,.2,1):.2;
       const doa=audio?.doa_confidence ?? audio?.confidence;
       const spread=audio?.azimuth_std_deg ?? 12;
       const fault=audio?.capture?.sample_clock_valid===false || audio?.capture?.ok===false;
@@ -21,7 +25,7 @@
       // from the target selector. All steering continues to use backend evidence.
       let usable = ['center','left','right','left_front','right_front'].includes(audio?.direction) &&
         [audio?.azimuth_deg, audio?.confidence, audio?.speech_confidence, doa, audio?.temporal_stability, spread, age].every(finite) &&
-        Math.abs(audio.azimuth_deg) <= 90 && audio.confidence >= .2 && audio.confidence <= 1 && doa >= .2 && doa <= 1 && audio.speech_confidence >= .5 && audio.speech_confidence <= 1 &&
+        Math.abs(audio.azimuth_deg) <= 90 && audio.confidence >= qualityMin && audio.confidence <= 1 && doa >= doaMin && doa <= 1 && audio.speech_confidence >= speechMin && audio.speech_confidence <= 1 &&
         audio.temporal_stability >= .5 && audio.temporal_stability <= 1 && spread>=0 && spread<=25 && age >= 0 && age <= .35 && !audio.motor_suppressed && identityValid;
       const key = observation && finite(observation.observed_monotonic) && Number.isInteger(observation.sample_sequence)
         ? `${observation.sample_sequence}/${observation.observed_monotonic}` : null;
@@ -85,6 +89,9 @@
       ambiguous_delay:"已检出人声，但时差有多个候选峰，暂不能确定方位",motion_acoustic_uncertain:"运动中声学证据不足，等待可靠方向",low_coherence:"两耳信号一致性不足",direction_transition:"方向变化确认中",
       inconsistent_frequency_bands:"不同频段给出的方向不一致",stale_audio:"音频已过期",audio_gap:"音频不连续",
       sample_clock_mismatch:"音频时钟异常，等待恢复",speech_like:"声学方向已产生",ear_pair:"声学方向已产生",
+      pair_consensus:"四麦方向一致，已融合",body_pair_fallback:"身体方向补充（头部坐标）",
+      body_fallback:"身体方向补充（头部坐标）",ear_fallback:"四麦协同，双耳方向有效",
+      pair_conflict:"两对方向存在冲突，保留双耳方向",
       channels_nearly_identical:"两耳波形近乎相同，暂不输出方向",replayed_audio_observation:"重复或乱序音频，等待新观察",
       unhealthy_capture:"采集或采样时钟异常，暂不显示方向范围"})[reason] || reason || "等待音频";
   }

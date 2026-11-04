@@ -1,108 +1,159 @@
-# DeepSight-3D · 视听感知机器人
+<div align="center">
 
-当前软件版本：**R43（2026-10-28）**。双目同帧采集、四路原始音频、声音辅助选人、双轴平滑跟踪，以及本地网页控制台。
+# 深瞳计划 · DeepSight-3D
 
-本次更新保留仓库已有的头部、身体 Blender 模型及整个 `hardware/` 目录，仅更新软件和配套资料。
+**让小熊看见人、听见方向，并自然地转向交流。**
 
-## 当前能力
+双目视觉 · 四麦声源定位 · 视听目标选择 · 双轴平滑控制
 
-- 双目独立检测与跟踪，可靠关联后两眼共同计算跟随误差；遮挡或关联不明确时退回有效单眼。
-- R43：黄色准星标记各自的人脸锚点，绿色圆环标记各自的期望位置，灰色小十字仅表示图像中心。正常水平视差保留，不强迫两眼的人脸同时落在图像正中心。
-- 四路 48 kHz、16 bit PCM、WASAPI RAW 采集。当前定位使用左耳 CH2、右耳 CH3；身体左 CH1、右 CH4 的安装映射已确认，暂未接入控制。
-- 本地 Silero VAD + 多频带可靠性加权时差估计；核心声音按时间证据锁定，视觉优先，可靠声音辅助匹配人脸。
-- 声音结束后蓝色范围保持 1 秒，仅供显示；持有的核心转向目标与实时声音证据分开处理。
-- 独立 50 Hz 平滑运动规划，串口自动发现、位置反馈、故障停止和本地诊断日志。
+[English](README_EN.md) · [快速开始](#快速开始) · [算法架构](#算法架构) · [硬件与结构](#硬件与结构) · [验证与边界](#验证与边界)
 
-## Windows 快速运行
+<img src="docs/assets/panda-assembled-cad.png" alt="根据仓库中的头部和身体 Blender 源文件生成的小熊装配预览" width="720" />
 
-克隆后，**进入包含 `run_server.py` 的仓库根目录**。GitHub 仓库根目录对应实验室旧工作区的 `positioning_robots/`，不需要再进入同名子目录。
+<sub>由仓库 V17 头部和 V25 身体模型按文件坐标组合渲染；这是设计预览，不代表新的装配公差或碰撞验收。</sub>
 
-```powershell
+</div>
+
+## 项目简介
+
+深瞳计划是一个面向**视听觉选择性感知与交互**的熊猫形机器人研究原型。系统从双目摄像头获取人脸与画面方向，从四路硅麦中估计语音活动和水平声源方向，以视觉为主选择可见目标，再通过两轴舵机平滑地转向和跟随。
+
+- **看见**：两眼分别检测人脸，结合双目对齐、跨目关联和共享注视方向。
+- **听见**：双耳与身体麦克风独立估计时差，结合人声支持、频段可靠性与姿态进行有条件融合。
+- **选择**：优先保持可信视觉目标；可靠声音帮助在可见人脸中选择可能的说话人。
+- **转向**：保留有限的听声目标，用受限轨迹逐步接近，并在停止、视觉接管或反馈故障时撤销动作权限。
+
+> **当前状态：R51 室内演示候选 / 研究原型。** 项目组反馈现有整体体验可用；R51增加了本机网页来源保护与仓库移植修复，并通过模拟回归。精确声源角度、动态四麦全姿态、多人和正式测距仍需现场验收，不能把模拟测试数量当作实物准确率。
+
+## 硬件与结构
+
+### 模型预览
+
+<table>
+<tr><th>头部内部 · 隐藏后壳</th><th>身体内部 · 隐藏后壳</th></tr>
+<tr><td><img src="docs/assets/head-interior-cad.png" alt="V17 头部内部与耳部线束的 CAD 渲染" /></td><td><img src="docs/assets/body-interior-cad.png" alt="V25 身体内部及身体麦克风的 CAD 渲染" /></td></tr>
+</table>
+
+这些图直接从下列仓库文件渲染：为展示内部结构，临时隐藏了相应后壳并显示文件中已有的线束；**没有修改或重新保存源模型**。项目组提供的[耳部麦克风座细节参考图](docs/assets/microphone-holder-reference.png)可用于理解装配关系，其与具体 CAD 修订的对应关系尚未再次核对。
+
+| 结构 | 可编辑源文件 | 说明 |
+| --- | --- | --- |
+| 头部 V17 | [panda_head_only_V17.blend](hardware/cad/head_shell/panda_head_only_V17.blend) | 包含头壳、耳部、相机固定件和参考器件 |
+| 身体 V25 | [panda_body_V25_shells_V16_cylinder.blend](hardware/cad/body_shell/panda_body_V25_shells_V16_cylinder.blend) | 包含身体壳体、身体麦克风座与圆柱底座参考 |
+| 来源与校验 | [panda_source_manifest.json](hardware/cad/panda_source_manifest.json) | 记录文件哈希和此前 Blender 读取检查 |
+
+仓库目前提供 `.blend` 可编辑源文件，**尚未包含与这两份模型对应确认的最终 STL / 3MF 或切片文件**。实际打印前需核对导出对象、尺寸、装配公差与线缆避让。[硬件归档说明](hardware/cad/README.md)
+
+### 设备配置
+
+| 部件 | 当前选型或配置 | 说明 |
+| --- | --- | --- |
+| 双目相机 | SC233HGS，彩色全局快门，商家标称200万像素、112°镜头 | MF手动调焦；112°对应的水平/垂直/对角定义待确认，软件清晰度辅助不是光学自动对焦 |
+| 双目数据 | MJPEG 同屏 **3840×1080**，每眼1920×1080，请求60 fps | 历史记录实收约33–50 fps；请求值不是稳定实测值，同帧同屏也不等于已验证同步曝光误差 |
+| 麦克风 | YDPI4MIC，四路模拟硅麦，WASAPI RAW，48 kHz / 16 bit | USB音频 VID:PID `EF09:459D`；原始四通道保留 |
+| 空间布局 | 耳部约13.55 cm，身体两麦约7.55 cm；同侧耳—身体约17.7–17.8 cm | 来自实物测量/估计，不是完整三维声学阵列标定 |
+| 两轴舵机 | Yaw ID 0：1404 / 1952 / 2500；Pitch ID 2：1255 / 1555 / 1855 | 为当前装配的**软件位置刻度**：下限 / 中位 / 上限；机械边界仍须现场确认 |
+| 转角比例 | 用户提供规格：2000 / 270 ≈ **7.4074 刻度/度** | R50起用于听声目标和头身偏航换算；不是最终装配实测角度精度 |
+| 控制与网页 | Python、FastAPI、本机网页、50 Hz 平滑轨迹 | 50 Hz 是轨迹下发频率，并非50 Hz位置反馈闭环 |
+
+<img src="docs/assets/microphone-layout.svg" alt="四路麦克风布置与小熊自身左右坐标" width="100%" />
+
+图中左右以**小熊自身**为准：左耳 CH2、右耳 CH3；身体左 CH1、身体右 CH4。两耳随头转动，身体两麦固定，因此两个坐标系需要随姿态对应。[当前配置示例](configs/panda-assembled-r51.example.json) · [麦克风布局](calibration/microphone_layout.json)
+
+## 算法架构
+
+<img src="docs/assets/system-architecture.svg" alt="双目视觉和四麦听觉汇入视觉优先选人与安全头部控制的框架图" width="100%" />
+
+### 视觉：两眼共同提供跟随方向
+
+1. 采集双目同帧画面并拆分左右画面；每眼独立做人脸检测与多尺度搜索。
+2. 使用最终装配后的对齐预览参数，检查两眼对应关系；可信匹配共同估计目标方向，匹配不可靠时不强行合并。
+3. 共享跟随方向映射回两眼各自的准星。正常的**水平视差会保留**，不会为了让图像重合而伪造深度。
+
+现有配置输出共同有效画面约 **1837×1053 / 眼**；一次留出与新抓图的垂直对齐验证有改善，但手持纸面、全视野与已知距离精度仍需进一步验证。正式米制距离输出关闭。[双目对齐参数](calibration/stereo_camera-alignment.json) · [双目说明](docs/BINOCULAR_UPGRADE_CN.md)
+
+### 听觉：四路参与，两对有条件融合
+
+四通道原始 PCM 分别进入耳部对和身体对。系统使用预训练 **Silero VAD** 获取人声支持，以频段可靠性加权的 GCC 时差与竞争峰、时间连续性判断形成方向；不会把混合后的音频当作原始相位信息。R49加入了受限的语音状态恢复分支，并未重新训练模型。
+
+身体声源方向只有在姿态和质量条件满足时才转换到头部坐标并参与融合；当反馈不可靠或俯仰偏离当前水平模型范围时，退回可信的耳部方向。它是**两对麦克风的动态协同**，不是已完成全三维标定的六对阵列，也不能可靠输出声音距离或完全消除前后歧义。[四麦设计](docs/FOUR_MIC_FUSION_CN.md) · [动态坐标变换](docs/DYNAMIC_MIC_FUSION_CN.md)
+
+### 视听选择与运动
+
+- **视觉优先**：没有可靠声音或声视冲突时，继续保持可信的可见目标；没有既定目标时参考相对人脸大小和检测质量。
+- **声音辅助**：将可信声音区间与整张人脸的角度范围匹配，再结合相对大小、视觉质量和连续性排序。该分数是规则匹配度，不是经过标定的说话人概率。
+- **有限目标**：声音短暂停止后，已授权的有限目标可以继续完成；历史蓝色显示不会变成新的声源证据。
+- **受限控制**：R50起使用配置的物理刻度/角度比例建立目标，单段步幅和50 Hz轨迹独立限制。位置反馈无效时停止；实际机械转角和顺滑度仍需实物复验。
+
+系统目前不包含声纹/姓名识别、语音转文字或语义对话；相对人脸大小也不是声源距离测量。[视听选择说明](docs/VISUAL_PRIORITY_CN.md) · [听声目标几何](docs/CORE_YAW_GEOMETRY_CN.md)
+
+## 快速开始
+
+以下以 Windows PowerShell 与 Python 3.11 为例。需要 FFmpeg（含 DirectShow）、Node.js（仅前端测试需要）和可用的音视频/串口驱动。依赖与 GPU 环境仍需按目标机器验证。
+
+~~~powershell
 git clone https://github.com/CatLiZi/DeepSight-3D.git
-Set-Location .\DeepSight-3D
-
-# 使用已有 demo 环境；新电脑可先 conda create -n demo python=3.11，再安装依赖
-conda activate demo
+Set-Location DeepSight-3D
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-ffmpeg -version
+~~~
 
-# 仅首次配置；此文件是当前这台小熊的实机参数快照
-Copy-Item .\configs\panda-final-r43.json .\locator_demo_settings.json
+真实硬件采用当前装配配置时，**只在没有现有配置的首次安装**复制示例，再核对设备、方向与安全行程：
 
-$env:LOCATOR_DEMO_PORT = "8010"
+~~~powershell
+if (-not (Test-Path .\locator_demo_settings.json)) {
+    Copy-Item .\configs\panda-assembled-r51.example.json .\locator_demo_settings.json
+}
 $env:LOCATOR_DEMO_SIM = "0"
 python -X utf8 .\run_server.py
-```
+~~~
 
-打开 <http://127.0.0.1:8010/>。看到 `Uvicorn running` 后保持终端打开；停止服务用该终端的 Ctrl+C。启动服务不会自行开启自动转头，需要在页面明确点击“开始运行”。新电脑接入硬件后先使用页面的设备刷新/串口检查，再核对通道、方向和行程。不要用旧示例覆盖已经确认好的实机配置。
+示例默认关闭相机、声音和视觉开关；先在网页核对设备与反馈，再由操作者打开所需功能。串口会因电脑重新分配；可使用网页的只读搜索并确认结果。访问 [http://127.0.0.1:8010/](http://127.0.0.1:8010/)；先不要急于开启自动转头。停止服务时在启动终端按 `Ctrl+C`。
 
-本机已有环境也可直接用 `& "C:\Users\SLAI\miniconda3\envs\demo\python.exe" -X utf8 .\run_server.py`。该绝对路径仅适用于实验室电脑，其他电脑使用自己的 Python 路径。
+无实体设备的模拟模式：
 
-FFmpeg 为单独安装的系统依赖，需加入 PATH。默认检测使用仓库已有 `models/scrfd.onnx`；ONNX Runtime GPU 不可用时按环境文档选择 CPU 版本。`docs/environment-observed-r43.json` 记录本次运行回归的环境版本，属于实际环境记录，不是已验证的新电脑一键安装锁文件。
-
-### 仿真与汇报页
-
-```powershell
-# 仿真模式：启动前设置；不作为实体硬件验收
+~~~powershell
 $env:LOCATOR_DEMO_SIM = "1"
 python -X utf8 .\run_server.py
+~~~
 
-# 另一个终端启动不含现场人脸/录音的汇报摘要
-python -m http.server 8769 --bind 127.0.0.1 --directory .\docs\report
-```
+程序默认只监听 `127.0.0.1`。R51拒绝外部网页的跨来源控制请求；**这不是本机进程身份认证**，请勿将控制服务直接暴露到局域网或公网。GPU 环境不兼容时需按目标机器选择合适的 ONNX Runtime / PyTorch 版本。[当前运行说明](docs/CURRENT_RELEASE_CN.md)
 
-汇报摘要也可直接打开 [docs/report/index.html](docs/report/index.html) 离线阅读。实验室完整历史汇报含现场画面和录音证据，保留在本机，未复制到公共仓库。
+## 验证与边界
 
-## 最终装配参数
+在本机现有 Python 环境、模拟执行器下：
 
-| 部件 | 当前配置 | 说明 |
-|---|---|---|
-| 摄像头 | SC233HGS；3840×1080 双目同屏；MJPEG；请求 60 fps | 每眼 1920×1080；最近实采约 49.6 fps，未宣称稳定达到 60 fps |
-| 对焦 | 手动调焦 MF | 软件不能产生镜头没有提供的电动对焦能力 |
-| 麦克风 | 4 通道 / 48 kHz / 16 bit / WASAPI RAW | 左耳 CH2、右耳 CH3；左右以小熊自身为准 |
-| 两耳间距 | 0.1355 m；延迟零点 0 | 估计工作间距；身体两路尚未参与控制 |
-| Yaw ID 0 | 最小 1404 / 中位 1952 / 最大 2500 | 左右各 548，总 1096 刻度 |
-| Pitch ID 2 | 最小 1255 / 中位 1555 / 最大 1855 | 上下各 300，总 600 刻度 |
-| 平滑控制 | 50 Hz；最大速度 180、加速度 600、jerk 3000 | 沿用已调试参数；刻度不是已标定的真实角度 |
+~~~powershell
+python -X utf8 tools\validate_regression_repair.py --output .tmp\release-tests
+python -X utf8 tools\validate_frontend.py
+python -X utf8 tools\validate_geometry_holdout.py
+~~~
 
-`configs/panda-final-r43.json` 保存最终装配参数；`locator_demo_settings.example.json` 为历史通用示例，保留用于兼容性测试，不是当前小熊的推荐配置。
+| 证据 | 当前结果 / 状态 |
+| --- | --- |
+| Python 回归 | **855项通过**；包含跨来源请求、配置移植、双目文件路径、声源目标和运动保护检查 |
+| 前端检查 | **104项通过**，包括5项 JavaScript 语法检查 |
+| 角度几何模拟 | R50针对不同起始位置、方向和档位的240组独立模拟通过；未驱动舵机 |
+| 真实声音 | 既有录音回放显示连续性改善；轻声、转动噪声、多人及远距离尚缺完整现场验收 |
+| 当前双目 | 对齐预览已应用；正式尺度、全视野误差与已知距离精度未验收 |
+| 机械 | 用户反馈整体体验可用；偶发位置反馈、最终机械边界与实测顺滑度仍需继续核对 |
 
-`calibration/stereo_camera-alignment.json` 是当前这套镜头安装的对齐预览参数，**正式米制距离仍关闭**。它不能保证另一台装配或移动镜头后仍然有效。标定板在 [output/calibration/stereo-charuco-A4-20mm.pdf](output/calibration/stereo-charuco-A4-20mm.pdf)，100%实际大小打印并测量格长。
+测试没有访问实体舵机。实测时如果没有量角工具，先按小熊左／中／右测试转向方向、短句结束后是否继续到位以及停止是否生效；不要把目测站位当成精确的30°/45°真值。[验证记录](docs/VALIDATION_R51.md)
 
-## 目录
+## 项目结构
 
-| 目录 / 文件 | 内容 |
-|---|---|
-| `src/locator_demo/` | 音频定位、视觉关联、目标选择、轨迹规划、串口与 Web 后端 |
-| `src/locator_demo/web/static/` | 当前控制台，以及 `legacy-r30/` 原界面备份 |
-| `tests/`、`tools/` | 离线回归、前端检查、采集及诊断工具 |
-| `configs/`、`calibration/` | 当前实机配置快照、双目对齐与麦克风映射 |
-| `models/` | 已有视觉权重及新增官方 Silero VAD 权重、来源和许可证 |
-| `third_party/TalkNet-ASD` | 原仓库已锁定的可选上游子模块；默认 `rules` 路径不需要它 |
-| `hardware/` | 用户从另一台电脑提交的头部和身体 CAD/Blender 模型，原样保留 |
-| `hardware_examples/` | USB 相机、麦克风、串口调用示例 |
-| `ui_backups/` | 原前端备份和恢复说明 |
-| `docs/` | 使用说明、当前摘要、历史记录、发布验证结果 |
+~~~text
+DeepSight-3D/
+├── src/locator_demo/       # 采集、听觉、双目、选人与运动控制
+├── src/locator_demo/web/   # FastAPI、状态接口、本机控制网页
+├── configs/                # 装配配置示例（不覆盖本机设置）
+├── calibration/            # 双目对齐预览和麦克风布局
+├── hardware/cad/           # 头部/身体 Blender 源文件与模型清单
+├── models/                 # 视觉与语音活动预训练模型
+├── tests/                  # 合成信号和模拟执行器测试
+├── tools/                  # 标定、诊断、测试及图示生成工具
+└── docs/                   # 说明、验证记录和项目展示素材
+~~~
 
-如需可选 TalkNet，运行 `git submodule update --init --recursive`，再按照上游说明自行准备权重；默认演示不依赖 TalkNet 权重。保留上游许可证和使用条件，不把未启用模块算作已验收能力。
-
-## 验证
-
-回归采用模拟硬件，屏蔽真实舵机自动探测，不开启真实相机或录音。完整前端检查需要 Node.js。
-
-```powershell
-python -X utf8 .\tools\validate_regression_repair.py --output .\.tmp\regression
-python -X utf8 .\tools\validate_publication.py --output .\.tmp\publication
-```
-
-本地 R43 上一轮通过 690 项 Python 回归、75 项前端检查。此次上传目录将重新验证，具体结果见 [docs/publication-validation-r43.json](docs/publication-validation-r43.json)。已有 8 组真实保存双目帧完成离线重放，其中 6 组在时间确认后形成双眼共同跟随；这不等同于新的真人动态跟随或实体机械验收。
-
-仍待验证：远距离及多说话人定位、舵机偶发无反馈的硬件根因、最终机械端点、四麦随头部运动的几何关系、正式测距。不能从两耳音量或人脸大小推出可靠的米数。
-
-## 发布范围
-
-源码来自本机 R43 当前版本。仅作便携化整理：打印标定板同时支持仓库内路径；离线测试改为使用仓库内的历史问题 ID 和实机配置快照，不依赖实验室外层目录。算法、控制参数和生产数据处理逻辑未为此次上传调整。
-
-不上传：原始录音、现场人脸图像/视频、串口运行日志、临时文件、历史重复源码快照、浏览器/会话迁移数据、凭据和虚拟环境。它们仍保留在原电脑。
-
-历史文档见 [docs/README_HISTORY_CN.md](docs/README_HISTORY_CN.md)，其中旧参数、旧版本“待重启”状态及指向本机 `hardware_inventory` 的链接只描述当时情况。当前使用以本页、R43 源码和最终装配配置为准。
+可选 TalkNet 以 Git submodule 保留，当前装配默认使用 `rules`；要研究可选后端可运行 `git submodule update --init --recursive`，并按其上游说明准备权重。第三方组件与模型受各自许可约束；Silero 许可见 [models/silero_vad.LICENSE.txt](models/silero_vad.LICENSE.txt)。本仓库尚未声明整体项目许可证。

@@ -7,7 +7,7 @@ this estimator. The returned uncertainty is diagnostic, not calibrated error.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import numpy as np
@@ -28,6 +28,7 @@ class DelayEvidence:
     average_frames: int = 0
     bands: tuple[dict, ...] = ()
     band_disagreement: bool = False
+    external_support_used: bool = False
 
 
 class ReliabilityWeightedDelay:
@@ -66,7 +67,7 @@ class ReliabilityWeightedDelay:
             self.noise_power += alpha * (power - self.noise_power)
         self.noise_windows += 1
 
-    def estimate(self, pair, *, maximum_lag_samples):
+    def estimate(self, pair, *, maximum_lag_samples, spectral_support=None):
         power, cross, coherence, frame_count = self.spectra(pair)
         freq = self.frequencies
         total = np.maximum(power.sum(axis=1), 1e-30)
@@ -88,6 +89,26 @@ class ReliabilityWeightedDelay:
         # Partial whitening retains useful speech energy; full PHAT promoted
         # low-SNR bins to equal votes. Coherence and speech surplus weight bins.
         weights = coherence ** 2 * gain ** 2 * support
+        baseline = self._evaluate(power, cross, coherence, gain, weights, maximum_lag_samples, basic)
+        if spectral_support is None:
+            return baseline
+        modifier = np.asarray(spectral_support, dtype=float)
+        if (modifier.shape != weights.shape or not np.isfinite(modifier).all()
+                or np.any(modifier < .75) or np.any(modifier > 1.25)):
+            return baseline
+        candidate = self._evaluate(power, cross, coherence, gain, weights * modifier,
+                                   maximum_lag_samples, basic)
+        # Never erase a valid ear direction or jump it to a different source peak.
+        if candidate.lag_samples is None:
+            return baseline
+        if baseline.lag_samples is not None and (
+                abs(candidate.lag_samples - baseline.lag_samples) > 1.5
+                or candidate.correlation < baseline.correlation * .9):
+            return baseline
+        return replace(candidate, external_support_used=True)
+
+    def _evaluate(self, power, cross, coherence, gain, weights, maximum_lag_samples, basic):
+        freq = self.frequencies
         base = weights / np.sqrt(np.maximum(np.abs(cross), 1e-30))
         weighted_cross = cross * base
         magnitude = np.abs(weighted_cross)

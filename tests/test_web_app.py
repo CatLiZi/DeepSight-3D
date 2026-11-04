@@ -392,8 +392,8 @@ class WebAppTests(unittest.TestCase):
         session = reloaded.get("/api/session").json()
 
         self.assertAlmostEqual(session["audio_processing"]["audio_confidence_threshold"], 0.22)
-        self.assertAlmostEqual(session["audio_processing"]["speech_confidence_threshold"], 0.16)
-        self.assertAlmostEqual(session["audio_processing"]["doa_confidence_threshold"], 0.06)
+        self.assertAlmostEqual(session["audio_processing"]["speech_confidence_threshold"], 0.50)
+        self.assertAlmostEqual(session["audio_processing"]["doa_confidence_threshold"], 0.20)
         self.assertEqual(session["audio_processing"]["required_audio_hits"], 2)
 
     def test_demo_can_start_and_stop(self):

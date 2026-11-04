@@ -10,6 +10,7 @@ import numpy as np
 from .audio import AudioDirection, AudioEstimate
 from .spectral_delay import ReliabilityWeightedDelay
 from .delay_track import DelayConsensus
+from .audio_policy import DEFAULT_AUDIO_POLICY
 
 
 @dataclass(frozen=True)
@@ -44,8 +45,10 @@ class EarPairConfig:
 
 
 class EarPairLocalizer:
-    def __init__(self, config: EarPairConfig, sample_rate=48000):
+    def __init__(self, config: EarPairConfig, sample_rate=48000, *, protect_uncertain_noise=False,policy=DEFAULT_AUDIO_POLICY):
         self.config, self.sample_rate = config, sample_rate
+        self.policy=policy
+        self.protect_uncertain_noise=protect_uncertain_noise
         self.diagnostics = {"signal_valid": False, "reason": "ear_mapping_unconfigured",
                             "method": "coherence_weighted_gcc", "analysis_window_s": .192}
         self._angle = None
@@ -74,7 +77,7 @@ class EarPairLocalizer:
         self.diagnostics['noise_windows'] = self.spectral.noise_windows
         return AudioEstimate(AudioDirection.UNKNOWN, 0, 0, energy, noise_state=reason)
 
-    def estimate(self, four_channel_pcm, *, speech_probability=None, sample_end=None):
+    def estimate(self, four_channel_pcm, *, speech_probability=None, sample_end=None, spectral_support=None):
         if not self.config.ready:
             return self._unknown("ear_mapping_unconfigured")
         values = np.asarray(four_channel_pcm)
@@ -109,18 +112,26 @@ class EarPairLocalizer:
         if speech_probability is not None:
             if not math.isfinite(speech_probability) or not 0 <= speech_probability <= 1:
                 return self._unknown('invalid_speech_probability', energy)
-            if speech_probability < .45:
-                self.spectral.observe_noise(pair)
+            if speech_probability < self.policy.detection_speech:
+                # Uncertain weak speech must not teach the noise reference.
+                # Admission remains .45; only confidently non-speech windows
+                # train noise. No old ray is returned across this gap.
+                if (not self.protect_uncertain_noise and speech_probability<DEFAULT_AUDIO_POLICY.detection_speech
+                        or speech_probability <= self.policy.noise_learning_max):
+                    self.spectral.observe_noise(pair)
                 return self._unknown('no_voice_activity', energy)
         max_tau = self.config.spacing_m / 343.0
         offset = self.config.delay_offset_us * 1e-6
-        evidence = self.spectral.estimate(pair, maximum_lag_samples=(max_tau + abs(offset)) * self.sample_rate)
+        support_options = {} if spectral_support is None else {'spectral_support':spectral_support}
+        evidence = self.spectral.estimate(pair, maximum_lag_samples=(max_tau + abs(offset)) * self.sample_rate,
+                                          **support_options)
         self.diagnostics.update(method='coherence_weighted_gcc', analysis_window_s=len(pair)/self.sample_rate,
             normalized_correlation=evidence.correlation, spectral_coherence=evidence.coherence,
             peak_ratio=evidence.peak_ratio, frequency_reliability=list(evidence.bands),
             spectral_spread_hz=evidence.spectral_spread_hz, coherence_average_frames=evidence.average_frames,
             noise_windows=self.spectral.noise_windows, physical_max_delay_us=max_tau*1e6,
-            frequency_disagreement=evidence.band_disagreement, frequency_evidence_current=True)
+            frequency_disagreement=evidence.band_disagreement, frequency_evidence_current=True,
+            body_spectral_support_used=evidence.external_support_used)
         if evidence.lag_samples is None:
             return self._unknown(evidence.reason, energy,
                 preserve_candidate=evidence.reason in ('ambiguous_delay','low_coherence','low_snr','invalid_delay'),
@@ -143,7 +154,7 @@ class EarPairLocalizer:
         self._delays.append(delay)
         center=float(np.median(self._delays));spread=float(np.median(np.abs(np.asarray(self._delays)-center)))
         stability=float(min(1.,len(self._delays)/3)*np.exp(-spread*self.sample_rate/3.))
-        if stability>=.5:self.delay_track.commit(center)
+        if stability>=self.policy.stability:self.delay_track.commit(center)
         self._angle=math.degrees(math.asin(float(np.clip(center/max_tau,-1,1))))
         sensitivity=math.sqrt(max(.03,1-(center/max_tau)**2))
         std=max(6.,math.degrees(max(.5/self.sample_rate,spread)/(max_tau*sensitivity)))
@@ -152,6 +163,6 @@ class EarPairLocalizer:
         self.diagnostics.update(signal_valid=True,reason="ear_pair",raw_azimuth_deg=angle,
                                 temporal_stability=stability,azimuth_std_deg=std,angle_calibrated=False)
         # The first candidate is inspectable but is not actionable evidence.
-        actionable_confidence = confidence if stability >= .5 else 0.
+        actionable_confidence = confidence if stability >= self.policy.stability else 0.
         return AudioEstimate(direction, actionable_confidence, delay, energy, self._angle,
                              speech, confidence, ratio, "speech_like",azimuth_std_deg=std,temporal_stability=stability)

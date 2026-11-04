@@ -55,7 +55,7 @@
     put('ui-eye-label',`${eye} · ${finite(capture.inference_fps)?capture.inference_fps.toFixed(1)+' fps':'等待推理'}`);
     const liveDot=document.querySelector('.live-label i');if(liveDot)liveDot.dataset.ready=String(Boolean(capture.ok));
     put('ui-frame-sequence',binocular.sample_sequence!=null?'FRAME '+String(binocular.sample_sequence).padStart(6,'0'):'等待帧');
-    const probability=input.speech_vad?.speech_probability;
+    const probability=audio.decision?.voice?.score ?? input.speech_vad?.speech_probability;
     put('ui-speech-value',finite(probability)?(Math.max(0,Math.min(1,probability))*100).toFixed(0)+'%':'—');
     const meter=byId('ui-speech-bar');if(meter)meter.style.width=finite(probability)?`${Math.max(0,Math.min(1,probability))*100}%`:'0%';
     const messages={no_voice_activity:'采集中 · 等待人声',speech_like:'已获得声源方向',ear_pair:'已获得声源方向',
@@ -65,18 +65,25 @@
     const motionVoice=audio.motion_context?.active && audio.motion_context?.admitted;
     const steeringReason=audio.steering?.stop_reason;
     const core=audio.core_source;
-    const coreMessages={collecting_core_direction:'正在累计核心方向证据',finishing_core_motion:'核心目标已锁定 · 完成当前转向',core_goal_submitted:'正在转向已确认的核心目标',core_goal_reached:'核心目标位置已到达 · 等待更强方向',awaiting_current_core_evidence:'保留声音位置 · 等待新的可靠声音再转向'};
+    const coreMessages={collecting_core_direction:'正在累计核心方向证据',finishing_core_motion:'核心目标已锁定 · 完成当前转向',core_goal_submitted:'正在转向已确认的核心目标',core_step_submitted:'正在分段转向核心目标 · 最终位置已保留',yaw_angle_calibration_missing:'缺少偏航刻度/角度比例 · 听声转头未启用',invalid_pose_model:'偏航角度配置或位置无效 · 听声动作已阻止',core_goal_reached:'核心目标位置已到达 · 等待更强方向',awaiting_current_core_evidence:'保留声音位置 · 等待新的可靠声音再转向'};
     const steeringNote=steeringReason==='yaw_limit'?'已到左右行程边界':steeringReason==='step_budget_reached'?'本轮听声搜索已达步数上限':coreMessages[steeringReason] || null;
     put('ui-acoustic-state',input.ok===false?'采集暂不可用 · 请查看输入诊断':steeringNote || (motionVoice?'转动中 · 可靠声音方向继续可用':messages[reason] || '正在检查声音方向'));
     const ownership=core?.motion_authorized?'本次听声转向有效':core?.motion_reason==='visual_target_has_priority'?'视觉目标优先':'位置记忆保留，等待新的声音';
     put('ui-core-source',core?.locked?`核心目标已锁定 · ${finite(core.current_score)?core.current_score.toFixed(1):'—'} 分 · ${core.historical?'实时方向暂缺，保留目标位置':'持续接收核心方向'} · ${ownership}`:'核心方向：等待持续、可靠的语音证据');
     const ranked=Array.isArray(core?.candidates)?core.candidates:[];
     put('ui-core-scores',ranked.length?ranked.slice(0,3).map(row=>`${row.selected?'● ':''}${finite(row.relative_azimuth_deg)?(row.relative_azimuth_deg>=0?'左':'右')+Math.abs(row.relative_azimuth_deg).toFixed(0)+'°估计':'方向候选'} ${finite(row.score)?row.score.toFixed(1):'—'}分 / ${finite(row.voiced_s)?row.voiced_s.toFixed(2):'—'}s`).join('；'):'分值综合有效讲话时长、方向质量和近期程度，幅度大不等于优先级高。');
+    const policy=audio.decision_policy,decision=audio.decision;
+    if(policy)put('audio-policy-summary',`实际门槛：尝试定位人声 ${Math.round(policy.detection_speech*100)}%；转头/选人人声 ${Math.round(policy.speech*100)}%；综合质量 ${Math.round(policy.confidence*100)}%；方向质量 ${Math.round(policy.doa*100)}%；两对方向合并 ${Math.round(policy.fusion_doa*100)}%。${finite(policy.context_recovery_speech)?`辅助恢复要求 ${Math.round(policy.context_recovery_speech*100)}%，另需原始双麦方向证据和至少${Math.max(3,policy.required_hits ?? 1)}次连续确认${finite(policy.context_recovery_confirmation_s)?`且覆盖${Math.round(policy.context_recovery_confirmation_s*1000)}毫秒`:""}；两组交错的辅助上下文各每${policy.context_recovery_period_s}秒更新。`:''}核心声源和跨人脸切换另需新数据连续确认。`);
+    if(decision){
+      put('ui-audio-decision',`${decision.voice?.detected?'人声证据已检出':'人声证据不足'} · ${decision.direction?.label || '等待方向'}`);
+      put('audio-decision-details',`${decision.voice?.detected?'已检出窗内人声证据':'尚未检出足够人声证据'} → ${decision.direction?.label || '等待可靠方向'} → ${decision.control?.label || '等待控制状态'}`);
+      put('ui-acoustic-state',decision.control?.label || decision.direction?.label || '等待判定');
+    }
     const acoustic=byId('ui-acoustic-state');if(acoustic)acoustic.dataset.quality=audio.direction && audio.direction!=='unknown'?'voice':'waiting';
     const sector=document.querySelector('.mini-badge');const half=visual.processing?.audio_sector_half_width_deg;
     if(sector)sector.textContent=`±${finite(half)?half:15}° 范围可调`;
     const ears=document.querySelector('.channels-heading small');
-    if(ears)ears.textContent=input.localization_mode==='ear_pair'?`CH${input.ear_left_channel ?? '—'} / CH${input.ear_right_channel ?? '—'} · 两耳`:'四路保留采集';
+    if(ears)ears.textContent=input.localization_mode==='four_mic'?'CH1–CH4 · 两耳＋身体':input.localization_mode==='ear_pair'?`CH${input.ear_left_channel ?? '—'} / CH${input.ear_right_channel ?? '—'} · 两耳`:'四路保留采集';
     const servo=byId('servo-config')?.textContent || '';
     put('ui-motion-port',snapshot.servo_connection?.port || /COM\d+/i.exec(servo)?.[0] || '等待端口信息');
     put('ui-motion-profile',motion.enabled?`${motion.sample_hz ?? '—'} Hz 连续轨迹`:'定时单条指令');
@@ -88,7 +95,7 @@
     const speed=Array.isArray(velocity)?Math.hypot(velocity[0]*(visual.frame_width || 0)/2,velocity[1]*(visual.frame_height || 0)/2):null;
     put('ui-adaptive-motion',approach.controller==='adaptive_image_velocity'
       ? `图像移动约 ${finite(speed)?Math.round(speed):'—'} px/s · 请求动作 ${approach.move_time_ms} ms · 左右步幅上限 ${approach.yaw_step_cap} 刻度`
-      : ['R32','R33','R34','R35','R36','R37','R38','R39','R40','R41','R42','R43'].includes(snapshot.algorithm_revision)?'动态追踪已加载 · 等待新目标画面':'动态追踪待正常重启加载');
+      : ['R32','R33','R34','R35','R36','R37','R38','R39','R40','R41','R42','R43','R44','R45','R46','R47','R48','R49','R50','R51'].includes(snapshot.algorithm_revision)?'动态追踪已加载 · 等待新目标画面':'动态追踪待正常重启加载');
     const health=byId('motion-health');if(health)health.dataset.fault=String(Boolean(fault));
     const ready=Boolean(capture.ok && input.ok);const deviceDot=byId('ui-device-dot');if(deviceDot)deviceDot.dataset.ready=String(ready);
     put('ui-device-summary',ready?'双目与音频已连接':capture.ok?'视觉在线 · 等待音频':input.ok?'音频在线 · 等待视觉':'等待采集设备');

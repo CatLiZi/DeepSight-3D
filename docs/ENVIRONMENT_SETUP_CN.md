@@ -61,7 +61,7 @@ FileNotFoundError: Unable to open file at ...\3D人头\...\models\face_landmarke
 **只有 MediaPipe 受影响**。同一路径下 ONNX Runtime 和 insightface 都正常。
 但 mediapipe 是默认人脸检测后端，所以必须解决。
 
-**做法**：项目放在纯 ASCII 路径下。本项目已放在 `C:\Users\SLAI\Desktop\DeepSight-3D\`。
+**做法**：项目放在纯 ASCII 路径下。本项目已放在 `<workspace>\`。
 
 如果实在不能改路径，可以用环境变量把模型指到别处（项目自带支持）：
 

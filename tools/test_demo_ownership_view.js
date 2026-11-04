@@ -8,8 +8,8 @@ const element=id=>{
 const window={};
 const context={window,document:{getElementById:element,querySelector(){return null;},querySelectorAll(){return [];},addEventListener(){}},performance:{now(){return 1000;}}};
 vm.runInNewContext(fs.readFileSync(process.argv[2],'utf8'),context);
-const update=core=>window.DeepSightShell.update({algorithm_revision:'R38',running:true,
-  features:{audio_enabled:true,visual_enabled:true},audio:{direction:'unknown',core_source:core},visual:{},motion:{}});
+const update=(core,steeringReason='',revision='R38')=>window.DeepSightShell.update({algorithm_revision:revision,running:true,
+  features:{audio_enabled:true,visual_enabled:true},audio:{direction:'unknown',core_source:core,steering:{stop_reason:steeringReason}},visual:{},motion:{}});
 const cases=[];const test=(name,fn)=>{fn();cases.push(name);};
 test('a retained location does not advertise permission to turn',()=>{
   update({locked:true,current_score:0,historical:true,motion_authorized:false});
@@ -28,6 +28,24 @@ test('no acquired source still requests reliable evidence',()=>{
 });
 test('R38 is recognized as loaded rather than awaiting a restart',()=>{
   assert.match(element('ui-runtime-revision').textContent,/R38/);
+  assert.match(element('ui-adaptive-motion').textContent,/已加载/);
+});
+test('staged motion explains that the final target is retained',()=>{
+  update({locked:true,motion_authorized:true},'core_step_submitted','R50');
+  assert.match(element('ui-acoustic-state').textContent,/分段.*最终位置已保留/);
+});
+test('missing angle calibration is distinct from unreliable speech',()=>{
+  update({locked:false},'yaw_angle_calibration_missing','R50');
+  assert.match(element('ui-acoustic-state').textContent,/缺少偏航.*比例/);
+});
+test('R50 is recognized with its preserved smooth controller',()=>{
+  update({locked:false},'','R50');
+  assert.match(element('ui-runtime-revision').textContent,/R50/);
+  assert.match(element('ui-adaptive-motion').textContent,/已加载/);
+});
+test('R51 is recognized with its preserved smooth controller',()=>{
+  update({locked:false},'','R51');
+  assert.match(element('ui-runtime-revision').textContent,/R51/);
   assert.match(element('ui-adaptive-motion').textContent,/已加载/);
 });
 console.log(JSON.stringify({successful:true,tests:cases.length,cases}));

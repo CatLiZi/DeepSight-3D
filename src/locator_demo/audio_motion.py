@@ -9,9 +9,10 @@ import math
 from numbers import Real
 
 from .audio import AudioDirection
+from .audio_policy import DEFAULT_AUDIO_POLICY
 
 
-def qualify_audio_during_motion(estimate, *, active):
+def qualify_audio_during_motion(estimate, *, active,policy=DEFAULT_AUDIO_POLICY):
     direction=getattr(estimate.direction,'value',estimate.direction)
     context={'active':bool(active),'policy':'acoustic_quality_not_movement_veto',
              'admitted':direction!='unknown' and not estimate.motor_suppressed,
@@ -28,9 +29,9 @@ def qualify_audio_during_motion(estimate, *, active):
     rejected_states={'noise','quiet','fan_or_motor','low_band_noise','denoise_guard',
         'ambiguous_delay','low_coherence','direction_transition','stale_audio','sample_clock_mismatch','channels_nearly_identical'}
     trusted=(numeric and estimate.noise_state not in rejected_states and all(0<=v<=1 for v in probabilities)
-             and estimate.speech_confidence>=.5 and min(estimate.confidence,estimate.doa_confidence)>=.2
-             and estimate.temporal_stability>=.5 and abs(estimate.azimuth_deg)<=90
-             and 0<=estimate.azimuth_std_deg<=25)
+             and estimate.speech_confidence>=policy.speech and estimate.confidence>=policy.confidence and estimate.doa_confidence>=policy.doa
+             and estimate.temporal_stability>=policy.stability and abs(estimate.azimuth_deg)<=90
+             and 0<=estimate.azimuth_std_deg<=policy.max_spread_deg)
     if trusted:
         context.update(admitted=True,reason='reliable_voice_during_motion')
         return estimate,context
