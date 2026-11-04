@@ -20,6 +20,8 @@ python -X utf8 tools\validate_geometry_holdout.py
 python -X utf8 tools\validate_publication.py --output .tmp\publication-check
 ```
 
+`publication-validation-r51.json` 同时记录Windows测试工作区原始字节哈希和Git仓库blob的SHA-256；Git换行转换会使两者不同，不代表源码逻辑不同。
+
 这些是软件测试，不是现场准确率。测试使用已经安装的依赖，**没有证明全新电脑可直接完成依赖安装**。Node.js用于前端检查；FFmpeg、驱动及可选GPU环境需在目标机器检查。
 
 ## 发现并修复的发布问题
