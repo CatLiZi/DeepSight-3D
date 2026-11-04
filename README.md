@@ -128,6 +128,7 @@ python -X utf8 .\run_server.py
 python -X utf8 tools\validate_regression_repair.py --output .tmp\release-tests
 python -X utf8 tools\validate_frontend.py
 python -X utf8 tools\validate_geometry_holdout.py
+python -X utf8 tools\validate_publication.py --output .tmp\publication-check
 ~~~
 
 | 证据 | 当前结果 / 状态 |

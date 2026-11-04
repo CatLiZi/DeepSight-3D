@@ -128,6 +128,7 @@ With the existing local Python environment and simulated actuators:
 python -X utf8 tools\validate_regression_repair.py --output .tmp\release-tests
 python -X utf8 tools\validate_frontend.py
 python -X utf8 tools\validate_geometry_holdout.py
+python -X utf8 tools\validate_publication.py --output .tmp\publication-check
 ~~~
 
 | Evidence | Result / status |

@@ -17,6 +17,7 @@
 python -X utf8 tools\validate_regression_repair.py --output .tmp\release-tests
 python -X utf8 tools\validate_frontend.py
 python -X utf8 tools\validate_geometry_holdout.py
+python -X utf8 tools\validate_publication.py --output .tmp\publication-check
 ```
 
 这些是软件测试，不是现场准确率。测试使用已经安装的依赖，**没有证明全新电脑可直接完成依赖安装**。Node.js用于前端检查；FFmpeg、驱动及可选GPU环境需在目标机器检查。
