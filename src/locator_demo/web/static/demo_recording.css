@@ -1,0 +1,25 @@
+.demo-record-panel{margin-bottom:18px;padding:17px 20px;border-color:#d4e6e3}
+.demo-record-bar,.demo-record-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.demo-record-bar{justify-content:space-between}
+.demo-record-bar h2{font-size:15px}.demo-record-bar p{font-size:11px;color:#667f8b;margin-top:4px}
+.demo-record-actions #demo-record-timer{font:12px Consolas,monospace;min-width:65px;color:#496779}
+.demo-record-actions button{min-height:34px;font-size:12px}
+#demo-record-status{font-size:11px;color:#557281;margin-top:10px;overflow-wrap:anywhere}
+.demo-cue{display:flex;gap:12px;align-items:baseline;margin-top:10px;padding:10px 12px;background:#eff7f5;border-radius:7px}
+.demo-cue b{min-width:80px;color:#087f74;font-size:12px}.demo-cue span{font-size:14px;line-height:1.6;color:#183f4c}
+.demo-record-downloads{display:flex;gap:8px 15px;flex-wrap:wrap;margin-top:10px}
+.demo-record-downloads:empty{display:none}.demo-record-downloads a{color:#087f74;font-size:12px;text-decoration:underline}
+.demo-record-panel details{margin-top:10px;font-size:12px;color:#5b7482}.demo-record-panel details p{line-height:1.8;margin-top:8px}
+#demo-dialogue-lines{display:grid;gap:5px;margin:10px 0;padding:12px;background:#f6f8fa;border-radius:7px}
+#demo-dialogue-lines p{margin:0;font-size:13px;color:#234754}.demo-label-buttons{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.demo-label-buttons button{font-size:11px;min-height:30px}
+#demo-record-refresh{font-size:10px;min-height:26px;margin-top:8px;padding:4px 9px}
+#demo-record-replay{width:100%;max-height:420px;margin-top:12px;border-radius:8px;background:#102b37}
+#demo-record-replay[hidden]{display:none}
+.demo-recording-active .summary-grid{display:none}
+.demo-recording-active .workspace-heading{margin-bottom:10px}
+.demo-recording-active .workspace-heading .eyebrow,.demo-recording-active #ui-page-description{display:none}
+.demo-recording-active .workspace-heading h1{font-size:25px}
+.demo-recording-active .operation-bar{margin-bottom:10px;padding-bottom:10px}
+.demo-recording-active .demo-record-panel{padding:11px 16px;margin-bottom:12px}
+@media(max-width:760px){.demo-record-panel{padding:14px}.demo-record-bar{align-items:flex-start}.demo-record-actions{width:100%}.demo-cue{display:block}.demo-cue b{display:block;margin-bottom:5px}}

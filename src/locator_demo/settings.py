@@ -116,6 +116,28 @@ class FeatureConfig:
     audio_enabled: bool = True
     visual_enabled: bool = True
     camera_enabled: bool = True
+    # None preserves the original low-level API for legacy callers. The web
+    # runtime migrates persisted installations to one explicit primary owner.
+    primary_mode: str | None = None
+
+    def __post_init__(self):
+        if self.primary_mode not in (None, 'audio_primary', 'visual_priority', 'preview'):
+            raise ValueError('Invalid primary control mode')
+        if self.primary_mode is not None:
+            object.__setattr__(self, 'audio_enabled', self.primary_mode == 'audio_primary')
+            object.__setattr__(self, 'visual_enabled', self.primary_mode == 'visual_priority')
+
+    @property
+    def uses_audio(self):
+        return self.primary_mode in ('audio_primary', 'visual_priority') if self.primary_mode else self.audio_enabled
+
+    @property
+    def uses_visual(self):
+        return (self.primary_mode in ('audio_primary', 'visual_priority') if self.primary_mode else self.visual_enabled) and self.camera_enabled
+
+    @staticmethod
+    def mode_from_flags(audio_enabled, visual_enabled):
+        return 'visual_priority' if visual_enabled else 'audio_primary' if audio_enabled else 'preview'
 
 
 @dataclass(frozen=True)
@@ -366,7 +388,7 @@ class VisionProcessingConfig:
 
     def __post_init__(self) -> None:
         strategy = str(self.tracking_strategy or "classic_audio_first").strip().lower()
-        if strategy not in ("classic_audio_first", "crowded_visual_first", "audio_visual_guided", "visual_priority"):
+        if strategy not in ("classic_audio_first", "crowded_visual_first", "audio_visual_guided", "visual_priority", "audio_primary"):
             strategy = "classic_audio_first"
         object.__setattr__(self, "tracking_strategy", strategy)
         object.__setattr__(self,'audio_sector_half_width_deg',max(5.,min(30.,float(self.audio_sector_half_width_deg))))
@@ -507,6 +529,7 @@ def load_settings(path: Path | str | None) -> SavedSettings:
             audio_enabled=bool(features_data.get("audio_enabled", True)),
             visual_enabled=bool(features_data.get("visual_enabled", True)),
             camera_enabled=bool(features_data.get("camera_enabled", True)),
+            primary_mode=features_data.get('primary_mode'),
         ),
         camera=CameraConfig(
             device_name=(camera_data.get("device_name") or None),

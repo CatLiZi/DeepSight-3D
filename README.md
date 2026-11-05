@@ -10,6 +10,8 @@
 
 [阶段汇报（HTML）](docs/report/index.html) · [整体评估与待处理问题（HTML）](docs/report/assessment.html)
 
+[双人对话录制](docs/DEMO_RECORDING_CN.md) · [一分钟内英文对话稿](docs/DEMO_DIALOGUE_EN.md)
+
 <sub>GitHub 文件页默认显示 HTML 源码；克隆或下载仓库后，用浏览器打开以上文件即可离线阅读公开脱敏版。</sub>
 
 <img src="docs/assets/panda-assembled-cad.png" alt="根据仓库中的头部和身体 Blender 源文件生成的小熊装配预览" width="720" />
@@ -20,14 +22,16 @@
 
 ## 项目简介
 
-深瞳计划是一个面向**视听觉选择性感知与交互**的熊猫形机器人研究原型。系统从双目摄像头获取人脸与画面方向，从四路硅麦中估计语音活动和水平声源方向，以视觉为主选择可见目标，再通过两轴舵机平滑地转向和跟随。
+深瞳计划是一个面向**视听觉选择性感知与交互**的熊猫形机器人研究原型。系统从双目摄像头获取人脸与画面方向，从四路硅麦中估计语音活动和水平声源方向，通过互斥的“听声主导”或“视觉主导”模式选择目标，再通过两轴舵机平滑地转向和跟随。
 
 - **看见**：两眼分别检测人脸，结合双目对齐、跨目关联和共享注视方向。
 - **听见**：双耳与身体麦克风独立估计时差，结合人声支持、频段可靠性与姿态进行有条件融合。
-- **选择**：优先保持可信视觉目标；可靠声音帮助在可见人脸中选择可能的说话人。
+- **选择**：听声模式由可靠声音决定方位、视觉修正对应人脸，新声源可打断；视觉模式保持可信视觉目标，声音辅助选人。
 - **转向**：保留有限的听声目标，用受限轨迹逐步接近，并在停止、视觉接管或反馈故障时撤销动作权限。
 
-> **当前状态：R51 室内演示候选 / 研究原型。** 项目组反馈现有整体体验可用；R51增加了本机网页来源保护与仓库移植修复，并通过模拟回归。精确声源角度、动态四麦全姿态、多人和正式测距仍需现场验收，不能把模拟测试数量当作实物准确率。
+> **R52 更新：** [听声／视觉双优先模式](docs/report/primary-modes-r52.html)已实现，904项Python回归及123项前端检查通过；本机已正常重启核对加载，实机两人交替说话效果待现场复核。两种主模式互斥，采集和平滑轨迹参数不变。
+
+> **此前状态：R51 室内演示候选 / 研究原型。** 项目组反馈现有整体体验可用；R51增加了本机网页来源保护与仓库移植修复，并通过模拟回归。精确声源角度、动态四麦全姿态、多人和正式测距仍需现场验收，不能把模拟测试数量当作实物准确率。
 
 ## 硬件与结构
 
@@ -62,7 +66,7 @@
 
 <img src="docs/assets/microphone-layout.svg" alt="四路麦克风布置与小熊自身左右坐标" width="100%" />
 
-图中左右以**小熊自身**为准：左耳 CH2、右耳 CH3；身体左 CH1、身体右 CH4。两耳随头转动，身体两麦固定，因此两个坐标系需要随姿态对应。[当前配置示例](configs/panda-assembled-r51.example.json) · [麦克风布局](calibration/microphone_layout.json)
+图中左右以**小熊自身**为准：左耳 CH2、右耳 CH3；身体左 CH1、身体右 CH4。两耳随头转动，身体两麦固定，因此两个坐标系需要随姿态对应。[当前配置示例](configs/panda-assembled-r52.example.json) · [麦克风布局](calibration/microphone_layout.json)
 
 控制中位和声学几何零位是不同的参数：当前示例的水平控制中位为 2000，头部相对身体的声学参考仍沿用 1952。若头身实际装配关系已改变，应重新确认声学参考，不应直接把两者视为相同。
 
@@ -109,7 +113,7 @@ python -m pip install -r requirements.txt
 
 ~~~powershell
 if (-not (Test-Path .\locator_demo_settings.json)) {
-    Copy-Item .\configs\panda-assembled-r51.example.json .\locator_demo_settings.json
+    Copy-Item .\configs\panda-assembled-r52.example.json .\locator_demo_settings.json
 }
 $env:LOCATOR_DEMO_SIM = "0"
 python -X utf8 .\run_server.py
@@ -146,7 +150,7 @@ python -X utf8 tools\validate_publication.py --output .tmp\publication-check
 | 当前双目 | 对齐预览已应用；正式尺度、全视野误差与已知距离精度未验收 |
 | 机械 | 用户反馈整体体验可用；偶发位置反馈、最终机械边界与实测顺滑度仍需继续核对 |
 
-测试没有访问实体舵机。实测时如果没有量角工具，先按小熊左／中／右测试转向方向、短句结束后是否继续到位以及停止是否生效；不要把目测站位当成精确的30°/45°真值。[验证记录](docs/VALIDATION_R51.md)
+测试没有访问实体舵机。实测时如果没有量角工具，先按小熊左／中／右测试转向方向、短句结束后是否继续到位以及停止是否生效；不要把目测站位当成精确的30°/45°真值。[验证记录](docs/VALIDATION_R52.md)
 
 ## 项目结构
 

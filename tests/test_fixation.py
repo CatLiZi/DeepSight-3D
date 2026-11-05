@@ -167,7 +167,7 @@ class FixationGeometryTests(unittest.TestCase):
                 np.testing.assert_allclose(runtime._visual_control['raw_error'],[-.125,40/180],atol=1e-12)
                 overlay=result['visual']['fixation']
                 self.assertEqual(set(overlay['eyes']),{'left','right'})
-                self.assertEqual(result['algorithm_revision'],'R51')
+                self.assertEqual(result['algorithm_revision'],'R52')
                 # Re-reading the same processed frame cannot issue another move.
                 runtime.tick(include_frame=False)
                 self.assertEqual(runtime.move.call_count,1)

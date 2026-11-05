@@ -11,6 +11,15 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 class PortableReleaseTests(unittest.TestCase):
+    def test_r52_profile_has_explicit_preview_and_preserves_rig_geometry(self):
+        old=load_settings(ROOT/'configs/panda-assembled-r51.example.json')
+        current=load_settings(ROOT/'configs/panda-assembled-r52.example.json')
+        self.assertEqual(current.features.primary_mode,'preview')
+        self.assertFalse(current.features.audio_enabled or current.features.visual_enabled or current.features.camera_enabled)
+        self.assertEqual(current.axis_limits,old.axis_limits)
+        self.assertEqual(current.audio_capture,old.audio_capture)
+        self.assertEqual(current.camera,old.camera)
+
     def test_assembled_profile_keeps_the_confirmed_four_microphone_mapping(self):
         config=load_settings(ROOT/'configs/panda-assembled-r51.example.json')
         audio=config.audio_capture

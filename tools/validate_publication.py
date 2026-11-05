@@ -24,7 +24,7 @@ def main():
 
     from locator_demo.settings import load_settings
     from locator_demo.stereo_calibration import StereoRectifier,alignment_profile_path
-    rig=load_settings(ROOT/'configs/panda-assembled-r51.example.json')
+    rig=load_settings(ROOT/'configs/panda-assembled-r52.example.json')
     limits=rig.axis_limits
     require((limits.yaw_min,limits.yaw_center,limits.yaw_max)==(1500,2000,2500),'Unexpected yaw limits')
     require((limits.pitch_min,limits.pitch_center,limits.pitch_max)==(1255,1550,1855),'Unexpected pitch limits')
@@ -34,6 +34,7 @@ def main():
     require(audio.ear_mapping_confirmed and audio.body_mapping_confirmed,'Microphone mapping is not confirmed')
     require(abs(audio.body_yaw_units_per_degree-2000/270)<1e-9 and audio.body_yaw_zero_position==1952,'Yaw geometry differs')
     require(not any((rig.features.audio_enabled,rig.features.visual_enabled,rig.features.camera_enabled)),'Example feature switches should start off')
+    require(rig.features.primary_mode=='preview','Example must use explicit preview mode')
 
     profile_path=alignment_profile_path(ROOT/rig.camera.stereo_calibration_path)
     profile=json.loads(profile_path.read_text(encoding='utf-8'))
@@ -54,9 +55,9 @@ def main():
     revisions=[v.value for n in ast.walk(syntax) if isinstance(n,ast.Dict)
                for k,v in zip(n.keys,n.values) if isinstance(k,ast.Constant)
                and k.value=='algorithm_revision' and isinstance(v,ast.Constant)]
-    require('R51' in revisions,'Source is not the expected R51 revision')
+    require('R52' in revisions,'Source is not the expected R52 revision')
 
-    result={'successful':True,'revision':'R51','frontend_tests':frontend['tests'],
+    result={'successful':True,'revision':'R52','frontend_tests':frontend['tests'],
             'four_mic_profile_valid':True,'sensor_features_default_off':True,
             'physical_yaw_scale_configured':True,'alignment_metric_output_enabled':False,
             'board_pdf_present':True,'silero_model_digest_valid':True,'cad_sources_digest_valid':True,

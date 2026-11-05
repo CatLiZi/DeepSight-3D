@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 from .av_selector import AudioVisualSelector
 from .visual_priority import VisualPrioritySelector
+from .audio_primary import AudioPrimarySelector
 
 
 def is_observed(target):
@@ -56,7 +57,7 @@ def association_score(a, b, descriptors, width, height):
 
 
 class BinocularFusion:
-    def __init__(self, tracking_eye="auto",*,guided=False,visual_priority=False,sector_half_width_deg=15.):
+    def __init__(self, tracking_eye="auto",*,guided=False,visual_priority=False,audio_primary=False,sector_half_width_deg=15.):
         self.tracking_eye = tracking_eye
         self.ids, self.seen, self.pending_pairs = {}, {}, {}
         self.next_id = 1
@@ -69,7 +70,7 @@ class BinocularFusion:
         self.transition_since = 0.
         self.transition_hits = 0
         self.last_update = None
-        self.selector=(VisualPrioritySelector(sector_half_width_deg=sector_half_width_deg) if visual_priority else AudioVisualSelector()) if guided else None
+        self.selector=(AudioPrimarySelector(sector_half_width_deg=sector_half_width_deg) if audio_primary else VisualPrioritySelector(sector_half_width_deg=sector_half_width_deg) if visual_priority else AudioVisualSelector()) if guided else None
 
     def _reset_confirmation(self, now):
         """Keep track labels, but do not bridge a stale observation interval.
@@ -104,7 +105,7 @@ class BinocularFusion:
     def _value(target):
         return .65 * target.score + .2 * min(1., (target.y2 - target.y1) / 240) + .15 * target.speaker_score
 
-    def update(self, images, targets, health, *, now, geometric_matches=None,audio=None,frame_time=0.):
+    def update(self, images, targets, health, *, now, geometric_matches=None,audio=None,frame_time=0.,acoustic_target=None):
         gap = None if self.last_update is None else now - self.last_update
         confirmation_reset = gap is not None and gap > .75
         if confirmation_reset:
@@ -186,6 +187,8 @@ class BinocularFusion:
             people.setdefault(gid, []).append(item)
         eligible = {gid: obs for gid, obs in people.items()
                     if self.tracking_eye == "auto" or any(t.source_eye == self.tracking_eye for t in obs)}
+        if isinstance(self.selector, AudioPrimarySelector):
+            self.selector.acoustic_target = dict(acoustic_target or {})
         winner=(self.selector.update(eligible,now=now,size=(w,h),audio=audio,frame_time=frame_time) if self.selector else
                 max(eligible,key=lambda gid:max(self._value(t) for t in eligible[gid]),default=None))
         if not self.selector and self.person in eligible and winner != self.person:

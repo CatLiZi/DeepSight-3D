@@ -3,8 +3,8 @@
 Scores rank reliable voiced observations; they are not speaker identity or
 semantic importance probabilities. Position geometry uses the configured
 physical ticks-per-degree scale; delivery steps are bounded independently.
-No historical estimate is emitted as a new AudioEstimate or sent to visual
-speaker selection. A specification-based scale is not a field calibration.
+No historical estimate is emitted as a new AudioEstimate. Audio-primary mode
+may use the retained goal for a bounded visual acquisition after the turn. A specification-based scale is not a field calibration.
 """
 from collections import deque
 from .audio_policy import DEFAULT_AUDIO_POLICY

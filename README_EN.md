@@ -10,6 +10,8 @@ Stereo vision · Four-microphone localization · Audio-visual selection · Smoot
 
 [Progress report (HTML, Chinese)](docs/report/index.html) · [Assessment and open issues (HTML, Chinese)](docs/report/assessment.html)
 
+[Two-person recording guide (Chinese)](docs/DEMO_RECORDING_CN.md) · [English dialogue under one minute](docs/DEMO_DIALOGUE_EN.md)
+
 <sub>GitHub shows HTML source in its file view. Clone or download the repository and open these privacy-filtered reports in a browser for offline viewing.</sub>
 
 <img src="docs/assets/panda-assembled-cad.png" alt="Panda assembly rendered from the repository head and body Blender source files" width="720" />
@@ -20,14 +22,16 @@ Stereo vision · Four-microphone localization · Audio-visual selection · Smoot
 
 ## Overview
 
-DeepSight-3D is a panda-shaped research prototype for **selective audio-visual perception and interaction**. It detects and associates faces from stereo images, estimates speech activity and horizontal sound direction from four microphones, selects a visible target with visual priority, and turns a two-axis head toward that target.
+DeepSight-3D is a panda-shaped research prototype for **selective audio-visual perception and interaction**. It detects and associates faces from stereo images, estimates speech activity and horizontal sound direction from four microphones, selects a target using either audio-primary or visual-primary control, and turns a two-axis head toward that target.
 
 - **See:** detect faces independently in both eyes and associate them using stereo alignment and a shared viewing direction.
 - **Listen:** estimate delays from the ear and body pairs, supported by voice activity, frequency reliability, and pose-dependent fusion.
-- **Select:** retain a reliable visual target; use a reliable sound sector to nominate a likely visible speaker.
+- **Select:** in audio-primary mode, turn toward a confirmed sound and use the matching face for visual refinement; a new confirmed source can interrupt. In visual-primary mode, retain a reliable face and use sound as assistance.
 - **Turn:** retain a bounded acoustic destination, approach it with a smooth trajectory, and revoke motion on stop, visual takeover, or feedback fault.
 
-> **Status: R51 indoor-demo candidate / research prototype.** The project team reports that the current overall experience is usable. R51 adds local browser-origin protection and fresh-checkout portability fixes, verified in simulation. Absolute acoustic angle, full-pose four-microphone fusion, multiple speakers, and metric depth still need field acceptance; test counts are not physical accuracy.
+> **R52 update:** [Exclusive audio/visual primary modes](docs/report/primary-modes-r52.html) are implemented; 904 Python regressions and 123 frontend checks pass. R52 was verified loaded after a normal local restart; alternating-speaker behavior still needs a field trial. Capture settings and smooth-motion limits are preserved.
+
+> **Previous status: R51 indoor-demo candidate / research prototype.** The project team reports that the current overall experience is usable. R51 adds local browser-origin protection and fresh-checkout portability fixes, verified in simulation. Absolute acoustic angle, full-pose four-microphone fusion, multiple speakers, and metric depth still need field acceptance; test counts are not physical accuracy.
 
 ## Hardware and CAD
 
@@ -62,7 +66,7 @@ The repository currently contains editable `.blend` sources, **not verified fina
 
 <img src="docs/assets/microphone-layout.svg" alt="Four-microphone layout with left and right named from the bear's perspective" width="100%" />
 
-Left and right are the **bear’s own**: left ear CH2, right ear CH3; left body CH1, right body CH4. The ears move with the head while the body pair remains fixed, so the two coordinate frames must be aligned with pose. [Rig example](configs/panda-assembled-r51.example.json) · [Microphone layout](calibration/microphone_layout.json)
+Left and right are the **bear’s own**: left ear CH2, right ear CH3; left body CH1, right body CH4. The ears move with the head while the body pair remains fixed, so the two coordinate frames must be aligned with pose. [Rig example](configs/panda-assembled-r52.example.json) · [Microphone layout](calibration/microphone_layout.json)
 
 The control center and acoustic geometry reference are distinct: the example uses yaw control center 2000 while the existing head-to-body acoustic reference remains 1952. Recheck the acoustic reference if the physical head/body alignment changes; do not assume the two values are interchangeable.
 
@@ -109,7 +113,7 @@ For this assembled rig, copy the example **only on first installation when no lo
 
 ~~~powershell
 if (-not (Test-Path .\locator_demo_settings.json)) {
-    Copy-Item .\configs\panda-assembled-r51.example.json .\locator_demo_settings.json
+    Copy-Item .\configs\panda-assembled-r52.example.json .\locator_demo_settings.json
 }
 $env:LOCATOR_DEMO_SIM = "0"
 python -X utf8 .\run_server.py
@@ -146,7 +150,7 @@ python -X utf8 tools\validate_publication.py --output .tmp\publication-check
 | Stereo | Alignment preview is available; metric scale, full-field error, and known-distance accuracy are not accepted |
 | Mechanics | The user reports the overall experience is usable; intermittent feedback, final mechanical limits, and measured smoothness remain to be checked |
 
-These tests do not access the physical servos. Without an angle-measurement tool, first check the bear’s left / center / right response, whether a confirmed short utterance completes its turn, and whether Stop cancels remaining motion. Do not treat approximate human positions as exact 30°/45° ground truth. [Validation record](docs/VALIDATION_R51.md)
+These tests do not access the physical servos. Without an angle-measurement tool, first check the bear’s left / center / right response, whether a confirmed short utterance completes its turn, and whether Stop cancels remaining motion. Do not treat approximate human positions as exact 30°/45° ground truth. [Validation record](docs/VALIDATION_R52.md)
 
 ## Repository layout
 

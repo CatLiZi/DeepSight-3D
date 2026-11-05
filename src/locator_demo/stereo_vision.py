@@ -74,12 +74,14 @@ class StereoVisionTracker(FfmpegCameraSnapshot):
                  left_rotation=0, right_rotation=0, multi_scale_search=True,
                  focus_assist=True, preview_jpeg_quality=95,
                  stereo_calibration_path="calibration/stereo_camera.json",stereo_geometry_enabled=True,
-                 audio_visual_guided=False,visual_priority=False,audio_sector_half_width_deg=15.,**kwargs):
+                 audio_visual_guided=False,visual_priority=False,audio_primary=False,audio_sector_half_width_deg=15.,**kwargs):
         if tracking_eye not in ("auto", "left", "right"):
             raise ValueError("Invalid tracking eye")
         self.tracking_eye = tracking_eye
         self.audio_visual_guided=audio_visual_guided
         self.visual_priority=bool(visual_priority)
+        self.audio_primary=bool(audio_primary)
+        self._acoustic_target={}
         self.audio_sector_half_width_deg=float(audio_sector_half_width_deg)
         self._guidance=None
         self._reset_fusion_pending=False
@@ -145,18 +147,21 @@ class StereoVisionTracker(FfmpegCameraSnapshot):
         with self._lock:self._guidance=estimate
 
     def _make_fusion(self):
-        return BinocularFusion(self.tracking_eye,guided=self.audio_visual_guided,visual_priority=self.visual_priority,
+        return BinocularFusion(self.tracking_eye,guided=self.audio_visual_guided,visual_priority=self.visual_priority,audio_primary=self.audio_primary,
                                sector_half_width_deg=self.audio_sector_half_width_deg)
 
     def _direction_frame(self):
         if self.rectifier is None:return None
-        return ScreenCenteredDirectionFrame(self.rectifier) if self.visual_priority else self.rectifier
+        return ScreenCenteredDirectionFrame(self.rectifier) if self.visual_priority or self.audio_primary else self.rectifier
 
-    def set_guided_mode(self,enabled,*,visual_priority=False,sector_half_width_deg=15.):
+    def set_acoustic_target(self,context):
+        with self._lock:self._acoustic_target=dict(context)
+
+    def set_guided_mode(self,enabled,*,visual_priority=False,audio_primary=False,sector_half_width_deg=15.):
         with self._lock:
-            options=(bool(enabled),bool(visual_priority),float(sector_half_width_deg))
-            if (self.audio_visual_guided,self.visual_priority,self.audio_sector_half_width_deg)!=options:
-                self.audio_visual_guided,self.visual_priority,self.audio_sector_half_width_deg=options
+            options=(bool(enabled),bool(visual_priority),bool(audio_primary),float(sector_half_width_deg))
+            if (self.audio_visual_guided,self.visual_priority,self.audio_primary,self.audio_sector_half_width_deg)!=options:
+                self.audio_visual_guided,self.visual_priority,self.audio_primary,self.audio_sector_half_width_deg=options
                 self._reset_fusion_pending=True
 
     def _load_rectification(self):
@@ -311,12 +316,13 @@ class StereoVisionTracker(FfmpegCameraSnapshot):
                     matches+= [b for b in aligned if b['left_track'] not in occupied_l and b['right_track'] not in occupied_r]
                 with self._lock:
                     guidance=self._guidance
+                    acoustic_target=dict(self._acoustic_target)
                     policy=getattr(self,'_audio_decision_policy',DEFAULT_AUDIO_POLICY)
                 if self.fusion.selector is not None and self.fusion.selector.policy!=policy:
                     self.fusion.selector._clear_audio_confirmation(time.perf_counter())
                     self.fusion.selector.policy=policy
                 result=self.fusion.update(detector_images,per_eye_targets,quality,now=time.perf_counter(),geometric_matches=matches,
-                    audio=guidance,frame_time=sample.captured_monotonic)
+                    audio=guidance,frame_time=sample.captured_monotonic,acoustic_target=acoustic_target)
                 if self.rectifier:
                     has_position=result["target"] is not None and result["target"].stereo_position is not None
                     metric_ready=self.rectifier.metric_ready

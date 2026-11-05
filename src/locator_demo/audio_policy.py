@@ -137,6 +137,7 @@ def explain_audio_decision(*,audio,raw,capture,policy,running,audio_enabled,visu
     elif not running:code='paused';label='自动转头已暂停；采集和显示继续'
     elif not audio_enabled:code='audio_control_disabled';label='听声转头已关闭'+('，当前以视觉跟随' if visual_enabled else '')
     elif core.get('motion_reason')=='visual_target_has_priority':code='visual_priority';label='视觉目标优先，本次声音未接管转向'
+    elif core.get('motion_reason')=='audio_primary_visual_refinement':code='audio_primary_visual_assist';label='声音目标已关联人脸，视觉微调中；新声源可打断'
     elif steering_reason=='yaw_angle_calibration_missing':code='yaw_geometry_missing';label='缺少偏航刻度/角度比例，不能生成听声位置目标'
     elif steering_reason=='invalid_pose_model':code='invalid_yaw_geometry';label='偏航角度配置或当前位置无效，听声动作已阻止'
     elif moving and core.get('motion_authorized'):code='finishing_target';label='正在完成已确认目标的转向；短暂停顿不取消目标'

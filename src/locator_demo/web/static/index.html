@@ -6,6 +6,7 @@
 <meta content="#0c202c" name="theme-color"/><meta content="DeepSight 视听感知人头控制台：双目视觉、两耳定位与双轴运动。" name="description"/>
 <title>DeepSight · 视听感知控制台</title><link href="data:," rel="icon"/>
 <link href="/static/console.css?v=console-r42-20261028" rel="stylesheet"/>
+<link href="/static/demo_recording.css?v=demo-d1-20261105" rel="stylesheet"/>
 </head>
 <body>
 <svg aria-hidden="true" class="icon-sprite" xmlns="http://www.w3.org/2000/svg"><defs>
@@ -48,8 +49,9 @@
 <button class="stop-button" id="stop-btn" type="button"><svg aria-hidden="true" class="icon"><use href="#i-stop"></use></svg>停止</button>
 <button id="center-btn" type="button">回中</button></div></div>
 <div class="operation-bar"><div class="feature-switches"><label class="toggle"><input checked="" id="camera-enabled-input" type="checkbox"/>摄像头</label>
-<label class="toggle"><input checked="" id="audio-enabled-input" type="checkbox"/>听声转头</label>
-<label class="toggle"><input checked="" id="visual-enabled-input" type="checkbox"/>视觉跟踪</label></div><span class="chip feedback-chip" id="action-feedback" role="status">就绪</span></div>
+<label class="toggle"><input id="audio-enabled-input" type="checkbox"/>听声转头 · 声音主导</label>
+<label class="toggle"><input checked="" id="visual-enabled-input" type="checkbox"/>视觉跟踪 · 视觉主导</label></div><span class="chip feedback-chip" id="action-feedback" role="status">就绪</span></div>
+<p class="muted" id="primary-mode-help">听声转头与视觉跟踪二选一；两者都关闭为仅预览。听声模式先转向声音，再用对应人脸修正；视觉模式稳定跟随，声音辅助选人。</p>
 <div aria-label="实时状态概览" class="summary-grid">
 <article class="summary-card"><span class="summary-icon"><svg aria-hidden="true" class="icon"><use href="#i-camera"></use></svg></span><span class="summary-label">相机采集</span><strong><span id="ui-capture-fps">—</span><small>FPS</small></strong><span class="summary-detail" id="ui-camera-size">等待双目画面</span></article>
 <article class="summary-card"><span class="summary-icon cyan"><svg aria-hidden="true" class="icon"><use href="#i-wave"></use></svg></span><span class="summary-label">音频输入</span><strong><span id="ui-audio-channels">—</span><small>CH</small></strong><span class="summary-detail" id="ui-audio-format">等待音频设备</span></article>
@@ -57,6 +59,15 @@
 <article class="summary-card state-summary"><span class="summary-icon slate"><svg aria-hidden="true" class="icon"><use href="#i-control"></use></svg></span><span class="summary-label">自动控制</span><strong id="ui-run-state">等待</strong><span class="summary-detail" id="ui-run-description">正在读取控制状态</span></article>
 </div>
 <section aria-label="实时感知" class="workspace-view" id="view-live">
+<section class="panel demo-record-panel" aria-label="双人演示录制">
+<div class="demo-record-bar"><div><h2>双人对话演示</h2><p>录制此标签页 + 四麦声音 · 最长60秒 · 仅保存在本机</p></div><div class="demo-record-actions"><span id="demo-record-timer">0 / 60 s</span><button class="primary" id="demo-record-start" type="button" disabled>录制60秒</button><button id="demo-record-stop" type="button" disabled>结束录制</button><button id="demo-record-retry" type="button" hidden>重试保存</button></div></div>
+<p id="demo-record-status" role="status">正在检查录制接口</p>
+<div class="demo-cue"><b id="demo-record-cue-role">对话提示</b><span id="demo-record-cue">三段长对话 A→B→A；A保持原位，B讲话时缓慢移动，换人停1秒。</span></div>
+<div class="demo-record-downloads" id="demo-record-downloads"></div>
+<video id="demo-record-replay" controls playsinline preload="metadata" hidden aria-label="本机演示录制回放"></video>
+<details id="demo-record-guide"><summary>查看英文对话与操作说明</summary><p>A站在小熊自身左前方并保持原位；B在右前方缓慢横向移动，两人都留在画面内。先由操作者确认跟踪模式并开始运行，再点击录制，选择控制台所在的浏览器标签页。录制开始后准备3秒，按A→B→A完成三段较长发言，每段之间留约1秒；B在自己的发言期间缓慢移动。下方是计划提示，不是算法识别出的说话人标签。</p><div id="demo-dialogue-lines"></div><div class="demo-label-buttons"><span>观察者可选标记实际说话人：</span><button data-demo-speaker="A" type="button">A说话</button><button data-demo-speaker="B" type="button">B说话</button><button data-demo-speaker="quiet" type="button">安静</button></div><p>MP4采用耳部两路作立体声回放；ZIP同时保留完整四通道WAV、原网页画面和目标时间线。请等待保存完成再刷新或关闭网页。</p></details>
+<button id="demo-record-refresh" type="button">查看最近已保存材料</button><div class="demo-record-downloads" id="demo-record-history" aria-label="最近一次已保存录制"></div>
+</section>
 <div class="live-grid">
 <div class="vision-column">
 <article class="panel vision-panel" data-layout="stereo" id="ui-vision-panel">
@@ -84,7 +95,7 @@
 <p class="binocular-note" id="face-score-note"></p>
 <div class="score-table-wrap"><table class="face-score-table"><thead><tr><th>候选</th><th>匹配度</th><th>方向</th><th>相对大小</th><th>状态</th></tr></thead><tbody id="face-score-rows"></tbody></table></div>
 </div>
-<div class="workflow-strip"><span class="workflow-step"><i>01</i>采集</span><b>→</b><span class="workflow-step"><i>02</i>感知</span><b>→</b><span class="workflow-step"><i>03</i>目标选择</span><b>→</b><span class="workflow-step"><i>04</i>连续控制</span><span class="workflow-caption">视觉主导 · 声音辅助</span></div>
+<div class="workflow-strip"><span class="workflow-step"><i>01</i>采集</span><b>→</b><span class="workflow-step"><i>02</i>感知</span><b>→</b><span class="workflow-step"><i>03</i>目标选择</span><b>→</b><span class="workflow-step"><i>04</i>连续控制</span><span class="workflow-caption" id="ui-primary-mode-caption">按所选模式分配优先级</span></div>
 </div>
 <aside aria-label="声音与运行状态" class="insight-column">
 <article class="panel acoustic-panel"><header class="panel-head"><div class="panel-title"><span class="panel-icon cyan"><svg aria-hidden="true" class="icon"><use href="#i-wave"></use></svg></span><div><h2>声源定位</h2><p>ACOUSTIC DIRECTION</p></div></div><span class="soft-tag" id="audio-confidence">—</span></header><div class="radar-surface"><canvas height="300" id="direction-canvas" width="420"></canvas></div><div class="audio-primary-metric"><span>当前方向</span><strong id="audio-direction">unknown</strong><span class="mini-badge">±15° 范围可调</span></div><div class="speech-row"><span>窗内语音证据</span><strong id="ui-speech-value">—</strong></div><div class="speech-track"><i id="ui-speech-bar"></i></div><div class="channels-heading"><span>输入通道</span><small>CH2 / CH3 · 两耳</small></div><div aria-label="耳部原始信号电平" class="ear-levels" id="ear-levels"></div><p class="acoustic-state" id="ui-acoustic-state">等待音频输入</p><p id="ui-audio-decision" class="panel-description" aria-live="polite">等待人声与方向判定</p><p class="panel-description" id="ui-core-source">核心方向：等待持续、可靠的语音证据</p><p class="panel-description" id="ui-core-scores">方向证据分综合有效讲话时长、方向质量和近期程度。</p><details class="diagnostic-details"><summary>输入状态与信号诊断<span class="summary-arrow">↗</span></summary><div><div class="metrics">
@@ -273,7 +284,8 @@
 </select>
 </label>
 <label class="inline-check" title="新策略用声音方向辅助选人；安静或方向不可靠时继续视觉跟随"><input checked="" id="active-speaker-input" type="checkbox"/>声音辅助选人</label>
-<label>跟踪策略 <select id="tracking-strategy-select">
+<label title="优先级由上方互斥的听声转头／视觉跟踪设置">当前跟踪策略 <select id="tracking-strategy-select">
+<option value="audio_primary">声音主导，视觉修正（新声源可打断）</option>
 <option value="visual_priority">视觉主导，声音扇区辅助</option>
 <option value="audio_visual_guided">声音辅助选人，视觉持续跟随</option>
 <option value="classic_audio_first">经典声音优先</option>
@@ -376,7 +388,8 @@
 </div>
 <script src="/static/audio_view.js?v=console-r44-20261029"></script>
 <script src="/static/array_view.js?v=console-r44-20261029"></script>
-<script src="/static/ui_shell.js?v=console-r44-20261029"></script>
+<script src="/static/ui_shell.js?v=console-r52-20261105"></script>
 <script src="/static/fixation_view.js?v=console-r43-20261028"></script>
-<script src="/static/app.js?v=console-r44-20261029"></script>
+<script src="/static/app.js?v=console-r52-demo-d1-20261105"></script>
+<script src="/static/demo_recording.js?v=demo-d1-r52-three-turns-20261105"></script>
 </body></html>

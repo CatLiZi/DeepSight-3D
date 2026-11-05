@@ -16,6 +16,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from .origin_guard import trusted_loopback_request
+from .demo_recording import attach_demo_recording_routes
+from ..demo_recording import DemoRecorder
 
 from ..asd import RuleBasedAsdBackend, make_asd_backend
 from ..audio import (
@@ -128,6 +130,7 @@ class FeatureConfigRequest(BaseModel):
     audio_enabled: bool = True
     visual_enabled: bool = True
     camera_enabled: bool = True
+    primary_mode: Literal["audio_primary", "visual_priority", "preview"] | None = None
 
 
 class CameraConfigRequest(BaseModel):
@@ -331,6 +334,9 @@ class DemoRuntime:
         self.config.pitch_id = saved.pitch_id
         self.direction = saved.direction
         self.features = saved.features
+        if not config.simulated and config.settings_path is not None and self.features.primary_mode is None:
+            self.features = replace(self.features, primary_mode=FeatureConfig.mode_from_flags(
+                self.features.audio_enabled, self.features.visual_enabled))
         self.camera = saved.camera
         self.audio_mapping = saved.audio_mapping
         self.audio_capture = saved.audio_capture
@@ -345,6 +351,8 @@ class DemoRuntime:
         self._attach_bus_diagnostics()
         self.head = self._make_head()
         self.audio = self._make_audio()
+        recording_root = (config.settings_path.parent if config.settings_path else Path(__file__).resolve().parents[3]) / 'recordings' / 'demo'
+        self.demo_recorder = DemoRecorder(recording_root, lambda: getattr(self.audio, 'capture', None))
         self.vision = self._make_vision()
         self.state_machine = self._make_state_machine()
         self.running = False
@@ -405,6 +413,9 @@ class DemoRuntime:
         self._audio_seek_stop_reason = ""
         self._dominant_sound = DominantSoundLock()
         self._dominant_context = None
+        self._acoustic_epoch = getattr(self, "_acoustic_epoch", 0) + 1
+        self._audio_primary_owner = None
+        self._audio_primary_token = None
         self._core_motion_authorized = False
         self._core_motion_reason = 'awaiting_current_core_evidence'
         self._last_core_sound_log = (None, 0.)
@@ -627,6 +638,7 @@ class DemoRuntime:
 
     def stop(self) -> None:
         self.halt_motion()
+        self.demo_recorder.shutdown()
         self._control_stop.set()
         if self._control_worker and self._control_worker is not threading.current_thread():
             self._control_worker.join(timeout=15)
@@ -670,7 +682,7 @@ class DemoRuntime:
         pitch_deadband = (
             float(self.vision_processing.visual_pitch_deadband)
             if self.vision_processing.visual_pitch_deadband is not None
-            else .04 if self.vision_processing.tracking_strategy == 'visual_priority' else float(params["pitch_deadband"])
+            else .04 if self.tracking_strategy in ('visual_priority', 'audio_primary') else float(params["pitch_deadband"])
         )
         max_pitch_delta = (
             int(self.vision_processing.visual_pitch_max_delta)
@@ -1177,6 +1189,11 @@ class DemoRuntime:
                                      denoise_output_dir=self.audio_processing.denoise_output_dir,
                                      use_denoised_for_localization=self.audio_processing.use_denoised_for_localization)
 
+    @property
+    def tracking_strategy(self):
+        mode = self.features.primary_mode
+        return mode if mode in ('audio_primary', 'visual_priority') else self.vision_processing.tracking_strategy
+
     def _make_vision(self):
         if self.config.simulated:
             return SimulatedVisionTracker()
@@ -1186,8 +1203,9 @@ class DemoRuntime:
                             "left_rotation": self.camera.left_rotation, "right_rotation": self.camera.right_rotation}
                            if tracker is StereoVisionTracker else {})
         if tracker is StereoVisionTracker:
-            capture_options['audio_visual_guided']=self.vision_processing.tracking_strategy in ('audio_visual_guided','visual_priority')
-            capture_options['visual_priority']=self.vision_processing.tracking_strategy=='visual_priority'
+            capture_options['audio_visual_guided']=self.tracking_strategy in ('audio_visual_guided','visual_priority','audio_primary')
+            capture_options['visual_priority']=self.tracking_strategy=='visual_priority'
+            capture_options['audio_primary']=self.tracking_strategy=='audio_primary'
             capture_options['audio_sector_half_width_deg']=self.vision_processing.audio_sector_half_width_deg
             capture_options.update(multi_scale_search=self.camera.multi_scale_search,
                                    focus_assist=self.camera.focus_assist,
@@ -1274,7 +1292,7 @@ class DemoRuntime:
             "control": asdict(self.control),
             "axis_limits": asdict(self.axis_limits),
             "audio_processing": asdict(self.audio_processing),
-            "vision_processing": asdict(self.vision_processing),
+            "vision_processing": {**asdict(self.vision_processing), "tracking_strategy": self.tracking_strategy},
         }
 
     @_serialized
@@ -1338,6 +1356,9 @@ class DemoRuntime:
             self._motion_pose_synced = False
         self._dominant_sound.reset()
         self._dominant_context = None
+        self._acoustic_epoch = getattr(self, "_acoustic_epoch", 0) + 1
+        self._audio_primary_owner = None
+        self._audio_primary_token = None
         self._reset_audio_seek()
         self._reset_reframe()
         self._smoothed_error = None
@@ -1376,6 +1397,7 @@ class DemoRuntime:
             audio_enabled=payload.audio_enabled,
             visual_enabled=payload.visual_enabled,
             camera_enabled=payload.camera_enabled,
+            primary_mode=payload.primary_mode or FeatureConfig.mode_from_flags(payload.audio_enabled, payload.visual_enabled),
         )
         was_running = self.running
         generation = None
@@ -1384,6 +1406,7 @@ class DemoRuntime:
             # user's Run intent, but the new mode must supply fresh evidence.
             generation = self._invalidate_motion_context(require_feedback=False)
         self.features = updated
+        self._set_vision_selection_policy()
         camera_source = self.camera.device_name or "off"
         if not self.features.camera_enabled:
             if hasattr(self.vision, "stop"):
@@ -1540,8 +1563,11 @@ class DemoRuntime:
         if not hasattr(self.vision,'set_guided_mode'):return
         if hasattr(self.vision,'set_audio_decision_policy'):
             self.vision.set_audio_decision_policy(AudioDecisionPolicy.from_config(self.audio_processing))
-        strategy=self.vision_processing.tracking_strategy
-        if strategy=='visual_priority':
+        strategy=self.tracking_strategy
+        if strategy=='audio_primary':
+            self.vision.set_guided_mode(True,audio_primary=True,
+                sector_half_width_deg=self.vision_processing.audio_sector_half_width_deg)
+        elif strategy=='visual_priority':
             self.vision.set_guided_mode(True,visual_priority=True,
                 sector_half_width_deg=self.vision_processing.audio_sector_half_width_deg)
         else:self.vision.set_guided_mode(strategy=='audio_visual_guided')
@@ -1593,19 +1619,19 @@ class DemoRuntime:
         audio_capture_metrics=self.audio.capture_metrics() if hasattr(self.audio,'capture_metrics') else None
         decision_policy=AudioDecisionPolicy.from_config(self.audio_processing)
         audio_decision=explain_audio_decision(audio=self.last_audio,raw=self.last_raw_audio,capture=audio_capture_metrics or {},
-            policy=decision_policy,running=self.running,audio_enabled=self.features.audio_enabled,visual_enabled=self.features.visual_enabled,
+            policy=decision_policy,running=self.running,audio_enabled=self.features.uses_audio,visual_enabled=self.features.uses_visual,
             moving=bool(getattr(self.head,'is_moving',False)),fault=self._motion_fault,core=self._core_sound_status(),now=time.perf_counter(),
             steering_reason=self._audio_seek_stop_reason)
         ticks = list(self._control_times)
         tick_hz = (len(ticks) - 1) / (ticks[-1] - ticks[0]) if len(ticks) > 1 and ticks[-1] > ticks[0] else 0
         return {
-            "algorithm_revision": "R51",
+            "algorithm_revision": "R52",
             "servo_connection": {'port':self.config.port,'yaw_id':self.config.yaw_id,
                 'pitch_id':self.config.pitch_id,'discovery':dict(self._servo_discovery)},
             "stereo_preflight": dict(self._stereo_preflight),
             "running": self.running,
             "mode": mode,
-            "strategy": self.vision_processing.tracking_strategy,
+            "strategy": self.tracking_strategy,
             "specific_speaker_detected": self.locked_speaker_id is not None,
             "locked_speaker_id": self.locked_speaker_id,
             "locked_speaker_score": round(self.locked_speaker_score, 3),
@@ -1642,8 +1668,8 @@ class DemoRuntime:
                 "motor_suppressed": self.last_audio.motor_suppressed,
                 "motion_context": dict(self._audio_motion_context),
                 "steering": {"steps":self._audio_seek_steps,"stop_reason":self._audio_seek_stop_reason,
-                    "visual_primary":bool(self.features.visual_enabled and self.last_state.target_confirmed),
-                    "actuator_wait":bool(time.time()<self.motor_guard_until_s and not self.features.visual_enabled)},
+                    "visual_primary":bool(self.tracking_strategy != "audio_primary" and self.features.uses_visual and self.last_state.target_confirmed),
+                    "actuator_wait":bool(time.time()<self.motor_guard_until_s and not self.features.uses_visual)},
                 "core_source": self._core_sound_status(),
                 "azimuth_std_deg": self.last_audio.azimuth_std_deg,
                 "temporal_stability": self.last_audio.temporal_stability,
@@ -1673,7 +1699,7 @@ class DemoRuntime:
                 "frame": self.last_frame_b64 if include_frame else "",
                 "frame_width": self.last_frame_width,
                 "frame_height": self.last_frame_height,
-                "processing": asdict(self.vision_processing),
+                "processing": {**asdict(self.vision_processing), "tracking_strategy": self.tracking_strategy},
                 "approach": dict(self._visual_approach),
                 "control": dict(self._visual_control),
                 "status": asdict(self.last_vision_status) if self.last_vision_status else None,
@@ -2062,6 +2088,14 @@ class DemoRuntime:
 
     def _tick_locked(self, *, include_frame: bool = True) -> dict[str, Any]:
         generation = self.motion_generation()
+        audio_enabled = self.features.uses_audio
+        visual_enabled = self.features.uses_visual
+        audio_primary = self.tracking_strategy == 'audio_primary'
+        modern_visual = self.tracking_strategy in ('visual_priority', 'audio_primary')
+        if audio_primary and self._stereo_preflight.get('status') == 'misaligned':
+            # Listening remains available, but a failed alignment check must
+            # not silently re-enable visual steering through the assist path.
+            visual_enabled = False
         now = time.time()
         if not self.running:
             self._image_velocity.reset()
@@ -2076,7 +2110,7 @@ class DemoRuntime:
         self.last_raw_audio = raw_audio
         self.last_audio,self._audio_motion_context = qualify_audio_during_motion(
             raw_audio,active=now < self.motor_guard_until_s,policy=AudioDecisionPolicy.from_config(self.audio_processing))
-        guided=self.vision_processing.tracking_strategy in ('audio_visual_guided','visual_priority')
+        guided=self.tracking_strategy in ('audio_visual_guided','visual_priority','audio_primary')
         if (not isinstance(self.audio, WasapiArrayAudio)
                 and not self.audio_processing.vad_enabled and not self.last_audio.motor_suppressed
                 and getattr(self.audio, "localization_ready", True)):
@@ -2097,20 +2131,21 @@ class DemoRuntime:
             self.last_audio,policy_reason=admit_audio(self.last_audio,AudioDecisionPolicy.from_config(self.audio_processing))
             if policy_reason!='usable_direction':
                 self._audio_motion_context.update(admitted=False,reason=policy_reason)
-        core_context = (generation, self.features.audio_enabled, self.features.visual_enabled,
+        core_context = (generation, audio_enabled, visual_enabled,
             self.direction.yaw_left_sign, self.axis_limits.yaw_min, self.axis_limits.yaw_max, dominant_mode,
             id(self.audio), id(self.head), tuple(sorted(asdict(self.audio_capture).items())),
             self.audio_mapping.swap_channels, self.control.control_profile,
-            self.vision_processing.tracking_strategy, self.vision_processing.active_speaker_enabled)
+            self.tracking_strategy, self.vision_processing.active_speaker_enabled)
         if core_context != self._dominant_context:
             if self._core_motion_authorized and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
                 self.head.cancel()
                 self.pose = getattr(self.head, 'estimated_pose', self.pose)
             self._dominant_sound.reset()
+            self._acoustic_epoch += 1
             self._core_motion_authorized = False
             self._core_motion_reason = 'awaiting_current_core_evidence'
             self._dominant_context = core_context
-        if dominant_mode and self.features.audio_enabled:
+        if dominant_mode and audio_enabled:
             self._dominant_sound.policy=AudioDecisionPolicy.from_config(self.audio_processing)
             parameters = self._profile_params()
             self._dominant_sound.update(self.last_audio, now=time.perf_counter(),
@@ -2125,7 +2160,7 @@ class DemoRuntime:
             # can guide a face. The stored position never masquerades as speech.
             current_core = not dominant_mode or self._dominant_sound.live_matches_core
             guidance = None
-            if guided and self.features.audio_enabled and self.vision_processing.active_speaker_enabled:
+            if guided and audio_enabled and (audio_primary or self.vision_processing.active_speaker_enabled):
                 guidance = self.last_audio
                 if not current_core and self.last_audio.direction != AudioDirection.UNKNOWN:
                     # Preserve the distinction between enabled-but-unconfirmed
@@ -2133,6 +2168,21 @@ class DemoRuntime:
                     guidance = replace(self.last_audio, direction=AudioDirection.UNKNOWN,
                         noise_state='awaiting_core_confirmation')
             self.vision.set_audio_guidance(guidance)
+        core_snapshot = self._dominant_sound.snapshot()
+        acoustic_token = (self._acoustic_epoch, core_snapshot['core_id'])
+        if hasattr(self.vision, 'set_acoustic_target'):
+            self.vision.set_acoustic_target(dict(core_snapshot, epoch=self._acoustic_epoch,
+                updated_monotonic=time.perf_counter()))
+        # Revoke a queued correction for an old source before the camera worker
+        # publishes a new result. Never wait for its next frame to change owner.
+        if audio_primary and acoustic_token != self._audio_primary_token:
+            if self._audio_primary_token is not None and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
+                self.head.cancel()
+                self.pose = getattr(self.head, 'estimated_pose', self.pose)
+                self.motor_guard_until_s = 0.
+            self._audio_primary_token = acoustic_token
+            self._smoothed_error = None
+            self._image_velocity.reset()
         control_target = None
         crowded_state = None
         view_confirming = False
@@ -2146,7 +2196,7 @@ class DemoRuntime:
             self.last_binocular = getattr(frame, "binocular", {})
             control_eye = getattr(frame, "control_eye", "")
             coordinate_frame=self.last_binocular.get("coordinate_frame", "selected_eye_pixels")
-            view_confirming = self.features.visual_enabled and self.last_binocular.get("selection_reason") in ("confirming_view", "stale_frame", "no_usable_eye")
+            view_confirming = visual_enabled and self.last_binocular.get("selection_reason") in ("confirming_view", "stale_frame", "no_usable_eye")
             if control_eye != self._last_control_eye:
                 self._last_control_eye = control_eye
                 self._smoothed_error = None
@@ -2160,15 +2210,25 @@ class DemoRuntime:
             self.last_targets = list(getattr(frame, "targets", []) or ([] if frame.target is None else [frame.target]))
             self.last_body_target = getattr(frame, "body_target", None)
             use_crowded = (
-                self.vision_processing.tracking_strategy == "crowded_visual_first"
+                self.tracking_strategy == "crowded_visual_first"
                 and self.vision_processing.active_speaker_enabled
             )
             if guided:
                 self.last_target=frame.target
                 control_target=frame.target
                 selection=self.last_binocular.get('target_selection',{})
-                self.audio_search_allowed=not self.features.visual_enabled or not bool(self.last_binocular.get('people',self.last_targets))
-                if self.features.visual_enabled and self.vision_processing.tracking_strategy=='visual_priority' and selection.get('locked_person_id') is not None:
+                if audio_primary:
+                    # Only the face explicitly associated with this exact core
+                    # epoch may drive visual corrections. An old worker frame
+                    # or an unrelated preview face cannot veto a new sound.
+                    if (selection.get('policy') != 'audio_primary'
+                            or (selection.get('acoustic_epoch'), selection.get('acoustic_core_id')) != acoustic_token
+                            or selection.get('mode') != 'visual_refine'):
+                        control_target = self.last_target = None
+                    self.audio_search_allowed = control_target is None
+                else:
+                    self.audio_search_allowed=not visual_enabled or not bool(self.last_binocular.get('people',self.last_targets))
+                if visual_enabled and self.tracking_strategy=='visual_priority' and selection.get('locked_person_id') is not None:
                     self.audio_search_allowed=False
                 crowded_state=DemoState(DemoMode.TRACK_SPEAKER if control_target is not None else DemoMode.VISUAL_SCAN,
                     audio_direction=self.last_audio.direction.value,visual_locked=control_target is not None,
@@ -2224,18 +2284,34 @@ class DemoRuntime:
             self.last_vision_status = VisionStatus(False, self.camera.device_name or "off", "camera off", fps=0.0)
             self.audio_search_allowed = True
             self._reset_speaker_lock()
-        audio_for_control = self.last_audio if self.features.audio_enabled else None
-        if not self.features.visual_enabled:
+        if audio_primary:
+            self.audio_search_allowed = control_target is None
+            # Visual loss or a new confirmed source withdraws the old visual
+            # trajectory. A fresh acoustic goal is then free to take over.
+            owner = 'visual' if control_target is not None else 'audio'
+            if self._audio_primary_owner == 'visual' and owner != 'visual':
+                if getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
+                    self.head.cancel()
+                    self.pose = getattr(self.head, 'estimated_pose', self.pose)
+                self.motor_guard_until_s = 0.
+            self._audio_primary_owner = owner
+        audio_for_control = self.last_audio if audio_enabled else None
+        if not visual_enabled:
             # Camera preview is not a permission gate on independent listening.
             self.audio_search_allowed = True
-        target_for_control = control_target if self.features.visual_enabled else None
+        target_for_control = control_target if visual_enabled else None
+        if audio_primary and not dominant_mode:
+            crowded_state = None
+        if audio_primary and dominant_mode and crowded_state is None:
+            crowded_state = DemoState(DemoMode.AUDIO_SEARCH, audio_direction=self.last_audio.direction.value,
+                visual_locked=False, target_confirmed=False, last_event='awaiting_sound_associated_face')
         self.last_state = (
             crowded_state
-            if crowded_state is not None and self.features.visual_enabled
+            if crowded_state is not None and visual_enabled
             else self.state_machine.update(audio=audio_for_control, target=target_for_control, now_s=now)
         )
         if dominant_mode:
-            visual_owner = self.features.visual_enabled and (self.last_state.target_confirmed or not self.audio_search_allowed)
+            visual_owner = visual_enabled and (self.last_state.target_confirmed or not self.audio_search_allowed)
             if not self.running:
                 self._core_motion_authorized = False
                 self._core_motion_reason = 'stopped'
@@ -2244,14 +2320,14 @@ class DemoRuntime:
                     self.head.cancel()
                     self.pose = getattr(self.head, 'estimated_pose', self.pose)
                 self._core_motion_authorized = False
-                self._core_motion_reason = 'visual_target_has_priority'
+                self._core_motion_reason = 'audio_primary_visual_refinement' if audio_primary else 'visual_target_has_priority'
             elif self._dominant_sound.fresh_core_observation:
                 self._core_motion_authorized = True
                 self._core_motion_reason = 'confirmed_core_motion'
             elif not self._core_motion_authorized:
                 self._core_motion_reason = (self._dominant_sound.reason if not self._dominant_sound.geometry_valid
                                             else 'awaiting_current_core_evidence')
-        acoustic_fallback = (dominant_mode and self.features.audio_enabled and self.audio_search_allowed
+        acoustic_fallback = (dominant_mode and audio_enabled and self.audio_search_allowed
                              and not self.last_state.target_confirmed and self._core_motion_authorized)
         self._reframe_active = False
         if self.running and (view_confirming or not self.last_state.target_confirmed):
@@ -2277,7 +2353,7 @@ class DemoRuntime:
             self.head.cancel()
             self.pose = getattr(self.head, "estimated_pose", self.pose)
         if self.running and (not view_confirming or acoustic_fallback):
-            visual_tracking = not view_confirming and self.features.visual_enabled and target_for_control is not None and self.last_state.target_confirmed
+            visual_tracking = not view_confirming and visual_enabled and target_for_control is not None and self.last_state.target_confirmed
             detection_sequence = getattr(frame, "detection_sequence", 0) if self.features.camera_enabled else 0
             fresh_visual = not detection_sequence or detection_sequence != self._last_control_detection_sequence
             motor_settling = now < self.motor_guard_until_s and not visual_tracking
@@ -2297,7 +2373,7 @@ class DemoRuntime:
                 if self.vision_processing.visual_mirror_x:
                     error_x = -error_x
                 params = self._profile_params()
-                if self.vision_processing.tracking_strategy=='visual_priority':
+                if modern_visual:
                     fixation=target_for_control.fixation
                     basis=(fixation['mode'],fixation['anchor_kind'],target_for_control.source_eye if fixation['mode']=='single_eye' else 'both') if fixation else ('legacy',)
                     identity=(target_for_control.face_id,self._last_coordinate_frame,basis)
@@ -2317,7 +2393,7 @@ class DemoRuntime:
                     )
                 visual_limits = self._visual_control_params(params)
                 control_error_x = 0.0 if self.vision_processing.visual_yaw_mode == "off" else self._smoothed_error[0]
-                if self.vision_processing.visual_pitch_enabled and self.vision_processing.tracking_strategy != 'visual_priority':
+                if self.vision_processing.visual_pitch_enabled and not modern_visual:
                     control_error_y = self._stable_pitch_error(
                         self._smoothed_error[1],
                         deadband=float(visual_limits["pitch_deadband"]),
@@ -2328,7 +2404,7 @@ class DemoRuntime:
                     control_error_y = 0.0
                 else:
                     control_error_y = self._smoothed_error[1]
-                if self.vision_processing.tracking_strategy=='visual_priority':
+                if modern_visual:
                     for axis, value in (('yaw', control_error_x), ('pitch', control_error_y)):
                         command, active_band = self._visual_triggers[axis].update(value,
                             band=visual_limits[axis+'_deadband'], sequence=detection_sequence or now, now=now)
@@ -2373,23 +2449,23 @@ class DemoRuntime:
                 self._visual_approach={}
                 self._pitch_error_direction = 0
                 self._pitch_error_hits = 0
-            no_visible_person = not self.features.visual_enabled or not self.last_targets
+            no_visible_person = not visual_enabled or not self.last_targets
             params = self._profile_params()
             visible_acquire_target = (
                 self.last_target
-                if not view_confirming and self.features.visual_enabled and self.last_target is not None
+                if not audio_primary and not view_confirming and visual_enabled and self.last_target is not None
                 and not self.last_state.target_confirmed
                 and self._target_matches_audio_region(self.last_target)
                 and self._target_has_acquire_evidence(self.last_target)
                 else None
             )
             if (
-                self.vision_processing.tracking_strategy == "crowded_visual_first"
+                self.tracking_strategy == "crowded_visual_first"
                 and self.last_targets
                 and not self.last_state.target_confirmed
             ):
                 visible_acquire_target = None
-            visual_reframe_available = not view_confirming and self.features.visual_enabled and self.features.camera_enabled and (
+            visual_reframe_available = not audio_primary and not view_confirming and visual_enabled and self.features.camera_enabled and (
                 no_visible_person or visible_acquire_target is not None
             )
             audio_seek_ready = not dominant_mode and self.last_state.audio_ready and not motor_settling and visible_acquire_target is None and (
@@ -2402,7 +2478,7 @@ class DemoRuntime:
                 if self.last_state.mode == DemoMode.AUDIO_SEARCH
                 else (1 if visual_reframe_available else audio_seek_step_limit)
             )
-            if (dominant_mode and self.features.audio_enabled and self.audio_search_allowed
+            if (dominant_mode and audio_enabled and self.audio_search_allowed
                     and not self.last_state.target_confirmed and visible_acquire_target is None):
                 core = self._dominant_sound.snapshot()
                 if not core['locked']:
@@ -2430,7 +2506,7 @@ class DemoRuntime:
                         self._reset_reframe()
                         move_time_ms = int(params['audio_seek_move_time_ms'])
             if (
-                self.features.audio_enabled
+                audio_enabled
                 and self.audio_search_allowed
                 and audio_seek_ready
                 and not self.last_state.target_confirmed
@@ -2522,7 +2598,7 @@ class DemoRuntime:
                 and self._audio_seek_steps < max_audio_seek_steps
             )
             reframe_ready = (
-                self.features.audio_enabled
+                audio_enabled
                 and visual_reframe_available
                 and not audio_seek_commanded
                 and not audio_seek_can_continue
@@ -2565,7 +2641,7 @@ class DemoRuntime:
                     self._mark_reframe_move(now)
         if dominant_mode:
             core = self._core_sound_status()
-            identity = (core['core_id'], core['reason'], self._audio_seek_stop_reason, self.features.visual_enabled)
+            identity = (core['core_id'], core['reason'], self._audio_seek_stop_reason, visual_enabled)
             previous, recorded = self._last_core_sound_log
             if identity != previous or now - recorded >= 2.:
                 self.log('core_sound_decision', {'core': core, 'steering_reason': self._audio_seek_stop_reason,
@@ -2961,4 +3037,5 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
             return
 
     app.state.runtime = runtime
+    attach_demo_recording_routes(app, runtime)
     return app

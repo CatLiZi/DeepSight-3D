@@ -275,7 +275,7 @@ function render(snapshot) {
   $("yaw-input").value = snapshot.pose.yaw;
   $("pitch-input").value = snapshot.pose.pitch;
   const cameraEnabled = snapshot.features?.camera_enabled ?? true;
-  const visualEnabled = snapshot.features?.visual_enabled ?? true;
+  const visualEnabled = snapshot.features?.primary_mode === "audio_primary" || (snapshot.features?.visual_enabled ?? true);
   const visualVisible = Boolean(snapshot.visual.visible || snapshot.visual.target);
   const specificSpeaker = Boolean(snapshot.specific_speaker_detected || snapshot.visual?.specific_speaker_detected);
   $("visual-state").textContent = visualEnabled
@@ -340,7 +340,7 @@ function render(snapshot) {
     }
     const people = binocular?.people || [];
     $("binocular-people").textContent = people.length ? people.map(p=>`目标 #${p.person_id}：${p.association==="calibrated_correspondence" ? "双目空间匹配" : p.association==="aligned_feature_correspondence" ? "双眼纹理对应" : p.eyes.length===2 ? "两侧外观暂定关联" : p.eyes[0]==="left" ? "左侧观察" : "右侧观察"}`).join("；") : "两侧均在检测，当前没有有效人脸目标。";
-    const modes={audio_guided:"声音辅助锁定",audio_sector_visual:"声音扇区内按视觉选人",visual_priority:"视觉主导",visual_fallback:"视觉持续跟随",visual_reacquire_wait:"短暂丢失，等待重新发现"};
+    const modes={waiting_sound:"声音主导 · 等待可靠方向",turn_to_sound:"声音主导 · 正在转向声源",acquire_face:"声音主导 · 寻找对应人脸",visual_refine:"声音主导 · 视觉微调（可被新声源打断）",face_lost:"声音主导 · 对应人脸暂时丢失",hold_sound:"声音主导 · 已到声源方向，等待新的声音",audio_guided:"声音辅助锁定",audio_sector_visual:"声音扇区内按视觉选人",visual_priority:"视觉主导",visual_fallback:"视觉持续跟随",visual_reacquire_wait:"短暂丢失，等待重新发现"};
     const audioReasons={stale_audio:"声音已过期",audio_disabled:"声音辅助关闭",awaiting_core_confirmation:"正在确认核心声音方向",no_voice_activity:"当前没有可靠语音",quiet:"安静",ambiguous_delay:"方向模糊",angular_ambiguity:"多个候选方向接近",direction_not_stable:"方向尚未稳定",audio_outside_visible_faces:"声音方向不在可见人脸中",motor_guard:"电机声音保护",inconsistent_frequency_bands:"频段方向不一致",uncertain_direction:"方向不确定"};
     audioReasons.visual_audio_conflict="声视未匹配，保持视觉";
     audioReasons.visible_faces_in_audio_sector="声音扇区内存在可见人脸";
@@ -348,13 +348,13 @@ function render(snapshot) {
     audioReasons.replayed_audio_observation="音频重复或乱序，等待新观察";
     audioReasons.future_video_for_audio="画面时间异常，暂按视觉跟随";
     audioReasons.stale_video_for_audio="画面更新稍慢，声音暂不参与选人";
-    $("av-guidance-status").textContent=["audio_visual_guided","visual_priority"].includes(snapshot.strategy)
+    $("av-guidance-status").textContent=["audio_visual_guided","visual_priority","audio_primary"].includes(snapshot.strategy)
       ? `${modes[selection?.mode] || "等待稳定观察"}${selection?.selected_person_id ? " · 目标 #"+selection.selected_person_id : ""} · ${audioReasons[selection?.audio_reason] || (selection?.audio_usable ? "声音方向可用" : "声音暂不参与选人")} · ${snapshot.running ? "自动控制已启动" : "仅预览，自动转头关闭"}` : "当前为旧策略对照模式";
     renderCandidateScores(selection);
     const approach=snapshot.visual.approach;
     const stages={coarse:"较大偏差",medium:"中等偏差",fine:"精细接近",hold:"保持"};
     const view=capture.direction_view?.visible_azimuth_interval_deg;
-    $("visual-approach-status").textContent=snapshot.strategy==="visual_priority"
+    $("visual-approach-status").textContent=["visual_priority","audio_primary"].includes(snapshot.strategy)
       ? `画面中心 0° · 声音搜索 ±${snapshot.visual.processing.audio_sector_half_width_deg || 15}° · ${view ? "当前有效视野约右"+Math.abs(view[0]).toFixed(0)+"°至左"+view[1].toFixed(0)+"° · " : ""}${approach?.mode ? "分段逼近：左右"+stages[approach.yaw_stage]+" / 上下"+stages[approach.pitch_stage] : "分段逼近已配置，等待启用视觉跟随"}；人脸大小只近似表示远近。` : "";
   }
   const focus = capture?.focus_capability;
@@ -434,6 +434,8 @@ function render(snapshot) {
     }
   }
   window.DeepSightShell?.update(snapshot);
+  if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function')
+    window.dispatchEvent(new CustomEvent('deepsight-state', {detail: snapshot}));
 }
 
 function connectWs() {
@@ -475,6 +477,8 @@ function applyFeatureConfig(features) {
   $("audio-enabled-input").checked = Boolean(features.audio_enabled);
   $("visual-enabled-input").checked = Boolean(features.visual_enabled);
   $("camera-enabled-input").checked = features.camera_enabled !== false;
+  $("tracking-strategy-select").disabled = Boolean(features.primary_mode);
+  if (features.primary_mode && features.primary_mode !== "preview") $("tracking-strategy-select").value = features.primary_mode;
 }
 
 function populateCameraDevices() {
@@ -668,11 +672,18 @@ function applyProcessingConfig(audioProcessing, visionProcessing) {
   }
 }
 
-async function saveFeatureConfig() {
+async function saveFeatureConfig(event) {
+  const audio = $("audio-enabled-input"), visual = $("visual-enabled-input");
+  if (event?.target === audio && audio.checked) visual.checked = false;
+  if (event?.target === visual && visual.checked) audio.checked = false;
+  // Serialize ownership transitions, not competing optimistic toggles.
+  for (const id of ["audio-enabled-input", "visual-enabled-input", "camera-enabled-input"]) $(id).disabled = true;
+  try {
   const session = await withFeedback("保存开关...", "开关已保存", () =>
     api("/api/config/features", {
       method: "POST",
       body: JSON.stringify({
+        primary_mode: visual.checked ? "visual_priority" : audio.checked ? "audio_primary" : "preview",
         audio_enabled: $("audio-enabled-input").checked,
         visual_enabled: $("visual-enabled-input").checked,
         camera_enabled: $("camera-enabled-input").checked,
@@ -680,6 +691,14 @@ async function saveFeatureConfig() {
     })
   );
   applyFeatureConfig(session.features);
+  } catch (error) {
+    // The server may have rejected a change. Restore its accepted mode.
+    const session = await api("/api/session").catch(() => null);
+    if (session) applyFeatureConfig(session.features);
+    throw error;
+  } finally {
+    for (const id of ["audio-enabled-input", "visual-enabled-input", "camera-enabled-input"]) $(id).disabled = false;
+  }
 }
 
 async function saveCameraConfig() {

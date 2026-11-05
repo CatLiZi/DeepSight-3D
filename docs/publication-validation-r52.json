@@ -1,0 +1,328 @@
+{
+  "revision": "R52",
+  "recording_feature": "D1",
+  "dialogue_version": "three_turns_v2",
+  "verified_at": "2026-11-05T12:28:28.606265+00:00",
+  "base_commit": "650bf809185fbf1c952af179e97ea74854640bdf",
+  "regression": {
+    "tests_run": 904,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "successful": true,
+    "hardware_io": false
+  },
+  "publication": {
+    "successful": true,
+    "revision": "R52",
+    "frontend_tests": 123,
+    "four_mic_profile_valid": true,
+    "sensor_features_default_off": true,
+    "physical_yaw_scale_configured": true,
+    "alignment_metric_output_enabled": false,
+    "board_pdf_present": true,
+    "silero_model_digest_valid": true,
+    "cad_sources_digest_valid": true,
+    "hardware_io": false,
+    "physical_calibration_verified": false
+  },
+  "dialogue": {
+    "paragraphs": 3,
+    "order": [
+      "A",
+      "B",
+      "A"
+    ],
+    "word_count": 90,
+    "maximum_recording_s": 60,
+    "spoken_window_s": 51
+  },
+  "cad_files_unchanged": true,
+  "source_hashes": {
+    "src/locator_demo/__init__.py": {
+      "worktree_sha256": "d08b68d816294ef4e37376316e2110d9334cc9c9a7a7eb783a090403d60b4f4a",
+      "git_blob_sha256": "f1a09ba74fcb4517e6f5deabd3d4b33c1bafb79792a7091ed24abc340304f8d7"
+    },
+    "src/locator_demo/array_audio.py": {
+      "worktree_sha256": "51fae378a8acf6abb4fdf3bdccce853dea1b227bb74e8800a2b721623dc594ec",
+      "git_blob_sha256": "51fae378a8acf6abb4fdf3bdccce853dea1b227bb74e8800a2b721623dc594ec"
+    },
+    "src/locator_demo/array_pose.py": {
+      "worktree_sha256": "0f4d611f2815494f3f331cb531fd629dd29c31714af527a2cd36b1a2d5ba6081",
+      "git_blob_sha256": "0f4d611f2815494f3f331cb531fd629dd29c31714af527a2cd36b1a2d5ba6081"
+    },
+    "src/locator_demo/asd.py": {
+      "worktree_sha256": "06b27d0c64eef68d33165cbaf31a99ec25bf8dcd3adfa4975f8380b9b8f628cb",
+      "git_blob_sha256": "96473623572528b0e0e5425802054f859327c21e0f51e66cc971a8c83d91c3cd"
+    },
+    "src/locator_demo/audio.py": {
+      "worktree_sha256": "5a26b29867314983b8412ece7b7f1d437b67a5e1f0404cbd21bde0dd6286a19a",
+      "git_blob_sha256": "1657056602b2106d21d786418d2f76db8c02b913453070aff8c73664daa0dd29"
+    },
+    "src/locator_demo/audio_denoise.py": {
+      "worktree_sha256": "1800cbf61f873b23ca69123e7d85aa2fec06a10439572a14392a364ecbd6f392",
+      "git_blob_sha256": "98e51db441fd6a2f7975dd68cba6e225b9175d098ac462e6499447ad1d9b7549"
+    },
+    "src/locator_demo/audio_device.py": {
+      "worktree_sha256": "9f5de0f050ffd8f40c1101dde790edb94ca0396a943ae9e72adfa036214e4078",
+      "git_blob_sha256": "f58be546f6d529f59f530bb41f6a077ac8ebb2e48c4b090aa19f4f6dde77003e"
+    },
+    "src/locator_demo/audio_motion.py": {
+      "worktree_sha256": "ad33126548b92c2d88a639cd30642a2b3413d1b1a3bdff7edeff8cae354337f3",
+      "git_blob_sha256": "fb5f8bc57a5aacf7f38567f24c2b0936ae60721a4a6fae9659b0196b0bade872"
+    },
+    "src/locator_demo/audio_policy.py": {
+      "worktree_sha256": "6b14cf4e9a24bf56fc29d22bd7827dc4d340863d6547e9b56cd905568c69766d",
+      "git_blob_sha256": "6b14cf4e9a24bf56fc29d22bd7827dc4d340863d6547e9b56cd905568c69766d"
+    },
+    "src/locator_demo/audio_primary.py": {
+      "worktree_sha256": "fe391d6f2eda4946f4d2df33dd2d120afbf7071bb1c7fc119c1967efe0b7fa69",
+      "git_blob_sha256": "fe391d6f2eda4946f4d2df33dd2d120afbf7071bb1c7fc119c1967efe0b7fa69"
+    },
+    "src/locator_demo/av_selector.py": {
+      "worktree_sha256": "c69d112460b31817d792dc7f940f2eec66b7776f22d4c2f38e40a1dc7149aa45",
+      "git_blob_sha256": "039ab5a19e5e5ca4dad337dec74417466530f8fe55640967cb108836390fc6c0"
+    },
+    "src/locator_demo/band_delay.py": {
+      "worktree_sha256": "fd158e9049b87cf89d7c61afe3125b441b16ae865ec7d6dc33c808a15107691e",
+      "git_blob_sha256": "fd158e9049b87cf89d7c61afe3125b441b16ae865ec7d6dc33c808a15107691e"
+    },
+    "src/locator_demo/bearing.py": {
+      "worktree_sha256": "6fd87b93fc992397a7cd21adb8197bf69dab380c63d3cdc106bfa9ef29070a3c",
+      "git_blob_sha256": "6fd87b93fc992397a7cd21adb8197bf69dab380c63d3cdc106bfa9ef29070a3c"
+    },
+    "src/locator_demo/binocular.py": {
+      "worktree_sha256": "e390a98f5b0438ef029d936c4e79d8af7ddbd10a8806e678cde4e793c81c84ff",
+      "git_blob_sha256": "3c2c08d2da967c594d440295ec91480c640aef2dccbbece2170d7d88967310d1"
+    },
+    "src/locator_demo/calibration_quality.py": {
+      "worktree_sha256": "c845c5ce8b57ff414e31ba8f8c419dc0ca5a6ff12e71403254917a7d77ec1918",
+      "git_blob_sha256": "c845c5ce8b57ff414e31ba8f8c419dc0ca5a6ff12e71403254917a7d77ec1918"
+    },
+    "src/locator_demo/camera.py": {
+      "worktree_sha256": "87a71c4d6691302103c248c27bdb4a5709cf67e3f06f1fcacfa69c1689989dc0",
+      "git_blob_sha256": "2e1c4d8f063fa6f1d45a512e89b30db1d2281f55fbb47a08a4a73103e67cca30"
+    },
+    "src/locator_demo/capture.py": {
+      "worktree_sha256": "dea81eb7d10e3daa205ceeebb5ba34dae788f9eb32b008b81787fe60c9af598c",
+      "git_blob_sha256": "dea81eb7d10e3daa205ceeebb5ba34dae788f9eb32b008b81787fe60c9af598c"
+    },
+    "src/locator_demo/delay_track.py": {
+      "worktree_sha256": "1a56333347931bb29df68cda041e6bf50d29a23679c5c473ca73d003be01245f",
+      "git_blob_sha256": "1a56333347931bb29df68cda041e6bf50d29a23679c5c473ca73d003be01245f"
+    },
+    "src/locator_demo/demo_recording.py": {
+      "worktree_sha256": "aee83a06796d770c345c3889078da1fc054a073a1508c533b96e73a6826b0352",
+      "git_blob_sha256": "aee83a06796d770c345c3889078da1fc054a073a1508c533b96e73a6826b0352"
+    },
+    "src/locator_demo/devices.py": {
+      "worktree_sha256": "872638e2e427fbb7f9a01d68f9684c287a50fbcf96320bafd7a7a51852f519bf",
+      "git_blob_sha256": "4fcaafc6835e97f5be16afeceb9a05db8848d7d189dc76c22b50023755d5669b"
+    },
+    "src/locator_demo/diagnostics.py": {
+      "worktree_sha256": "944095944240b1f3bfcfa15842207a97d7bf3beb732b78f6dfdae705b9e5f7bf",
+      "git_blob_sha256": "944095944240b1f3bfcfa15842207a97d7bf3beb732b78f6dfdae705b9e5f7bf"
+    },
+    "src/locator_demo/dominant_sound.py": {
+      "worktree_sha256": "f5d24fd6059b916008038e50627f04f163814c7459539f2d0ed13aa16902740c",
+      "git_blob_sha256": "e547770f0b8057883be9688ffe7fd520e4fd4aea02f36a04c3ed3854f3846a18"
+    },
+    "src/locator_demo/ear_localization.py": {
+      "worktree_sha256": "ec6ed98376c23113254a0570ac4867ea23b59eac614544feea1d201e95bedf23",
+      "git_blob_sha256": "ec6ed98376c23113254a0570ac4867ea23b59eac614544feea1d201e95bedf23"
+    },
+    "src/locator_demo/fixation.py": {
+      "worktree_sha256": "ee78b0ced6de9aae324bb437aab0a1ce19a17955aa18480478dc8533ab67aed8",
+      "git_blob_sha256": "ee78b0ced6de9aae324bb437aab0a1ce19a17955aa18480478dc8533ab67aed8"
+    },
+    "src/locator_demo/head.py": {
+      "worktree_sha256": "4a20fa57f67ad9d0711ede0f7b27aea8e164100aa23407550c5f9aa9317502f2",
+      "git_blob_sha256": "78c476f65812e66d22f8c39c13c0e77420d888ead9c86a8c4ffe931a94859f20"
+    },
+    "src/locator_demo/motion.py": {
+      "worktree_sha256": "377db0c4d88ff66299a4109da3cdcc2b0b6f1e50072ae3e2cac80fed396e543e",
+      "git_blob_sha256": "377db0c4d88ff66299a4109da3cdcc2b0b6f1e50072ae3e2cac80fed396e543e"
+    },
+    "src/locator_demo/multiscale_faces.py": {
+      "worktree_sha256": "be4546d32b6fd4c36646d980cf864a46b269df09093691678e9e3607bc954e92",
+      "git_blob_sha256": "be4546d32b6fd4c36646d980cf864a46b269df09093691678e9e3607bc954e92"
+    },
+    "src/locator_demo/orchestrator.py": {
+      "worktree_sha256": "e9a86a9deb596e9883c024a6cf57c9539e00a316047c45a298deae5f932c6cb0",
+      "git_blob_sha256": "9f872e5fc72ba3e3ab13a78f479eab0c57a11e3ab2b46e69c66c764f8d2adf20"
+    },
+    "src/locator_demo/pair_fusion.py": {
+      "worktree_sha256": "c763ba94cfc06fd6bf2732655500d7a934840b2fc4d6492ed9333601c33ff689",
+      "git_blob_sha256": "e96182abc1393df96d18932205bfb624495a5989ab1e68391002442a95c78589"
+    },
+    "src/locator_demo/servo_bus.py": {
+      "worktree_sha256": "d06df330a19a2b2be3edf1f88be0dff5c1db7ef329c389b8b2392f8fb3bab131",
+      "git_blob_sha256": "d06df330a19a2b2be3edf1f88be0dff5c1db7ef329c389b8b2392f8fb3bab131"
+    },
+    "src/locator_demo/settings.py": {
+      "worktree_sha256": "cff1f5d3932ba121659e611df902a1fed70ccd75296705c082281b5a0a996b0d",
+      "git_blob_sha256": "5583bf12d8e69539ba767eeff4c25a9349c50d3a5e05046fa139b6cce230b66f"
+    },
+    "src/locator_demo/spectral_delay.py": {
+      "worktree_sha256": "9742d1f3043e77c7d6d76b7fa8cc40dd5f075475d5167c5583131e086b0109d7",
+      "git_blob_sha256": "9742d1f3043e77c7d6d76b7fa8cc40dd5f075475d5167c5583131e086b0109d7"
+    },
+    "src/locator_demo/speech_continuity.py": {
+      "worktree_sha256": "7efcae566fce0cab7125bb4e3b58456353237214af95dc08e789663271f886cb",
+      "git_blob_sha256": "4d67209757d2791a0d8de49fdb293393419b45febcb506543672b91f14b002b9"
+    },
+    "src/locator_demo/speech_recovery.py": {
+      "worktree_sha256": "46c21c6dbae06f9f3d2d00e0637d8bbbd55cf2a99f4283db637217cb35b10243",
+      "git_blob_sha256": "46c21c6dbae06f9f3d2d00e0637d8bbbd55cf2a99f4283db637217cb35b10243"
+    },
+    "src/locator_demo/speech_vad.py": {
+      "worktree_sha256": "0f62c4bf3c96c01652e03e14a534479852c9447bb5604a89e82776894aa98b3d",
+      "git_blob_sha256": "0f62c4bf3c96c01652e03e14a534479852c9447bb5604a89e82776894aa98b3d"
+    },
+    "src/locator_demo/stereo_calibration.py": {
+      "worktree_sha256": "311d027687f89b6d8fa0819f8f284619ca6829a7e28f1428ab84bc06f37be025",
+      "git_blob_sha256": "311d027687f89b6d8fa0819f8f284619ca6829a7e28f1428ab84bc06f37be025"
+    },
+    "src/locator_demo/stereo_geometry.py": {
+      "worktree_sha256": "ea783911a4288445f6903fd504bf96886c9bba0fe800a91e818ec956260f433c",
+      "git_blob_sha256": "ea783911a4288445f6903fd504bf96886c9bba0fe800a91e818ec956260f433c"
+    },
+    "src/locator_demo/stereo_health.py": {
+      "worktree_sha256": "aac91560509347d7a343295ec19cc44f994aa956f966eb096851ee497cec38c4",
+      "git_blob_sha256": "aac91560509347d7a343295ec19cc44f994aa956f966eb096851ee497cec38c4"
+    },
+    "src/locator_demo/stereo_vision.py": {
+      "worktree_sha256": "464826263e3b040a2cf002659e9d5ef4ef7445334553ab3e6fe268040782cc40",
+      "git_blob_sha256": "8f1b31d6b66f0b5de1d1cc0e04cf06b17bce257c434b0801793acf3416f3e404"
+    },
+    "src/locator_demo/talknet_adapter.py": {
+      "worktree_sha256": "f855f405aa997c5482fddaebb05d7824037697a9d81cf31883531fa394c851e4",
+      "git_blob_sha256": "00151faadf8434e2c1fb026433aa80a1b7235cac2b99d4e9dd9120316422b338"
+    },
+    "src/locator_demo/vision.py": {
+      "worktree_sha256": "7c1d4bd714a20a658ff41c895a8b5b74d2a7182a139e4f7c692963891a84194c",
+      "git_blob_sha256": "70de8b4541b081892c6059a00bd3b1e25ce275951bbc9130d0745515cd611690"
+    },
+    "src/locator_demo/visual_priority.py": {
+      "worktree_sha256": "961446840975511da12fc7cd921a400705b00bae6c0c821b4bffaa11a87f2ada",
+      "git_blob_sha256": "961446840975511da12fc7cd921a400705b00bae6c0c821b4bffaa11a87f2ada"
+    },
+    "src/locator_demo/visual_quality.py": {
+      "worktree_sha256": "57e117d02280010b82292ba61da35d264662dc84a18a5f959663909f81c6640a",
+      "git_blob_sha256": "57e117d02280010b82292ba61da35d264662dc84a18a5f959663909f81c6640a"
+    },
+    "src/locator_demo/visual_servo.py": {
+      "worktree_sha256": "da94932386881744324c6a2b14eca1c24090b60097daadc75de205a9760a0170",
+      "git_blob_sha256": "da94932386881744324c6a2b14eca1c24090b60097daadc75de205a9760a0170"
+    },
+    "src/locator_demo/visual_trigger.py": {
+      "worktree_sha256": "03ba3327a12893d5b31f22592c0fa88ae95efbe75ae156a3d7c18808a6d876e6",
+      "git_blob_sha256": "03ba3327a12893d5b31f22592c0fa88ae95efbe75ae156a3d7c18808a6d876e6"
+    },
+    "src/locator_demo/web/__init__.py": {
+      "worktree_sha256": "62ff1b8671e1e0fdd1b4306898490400cc91863d7ab80ebaf5626cbf9979e0c8",
+      "git_blob_sha256": "3da1dfa04bd158837ab814a785ca160b82e1562cef15cd8e3a79e4f5f2e69ed1"
+    },
+    "src/locator_demo/web/app.py": {
+      "worktree_sha256": "f462f7439d98771a9da284f1bc6305074721f3940bb181f4756fa97ea5c69cc1",
+      "git_blob_sha256": "0d30b63e55cb2ab3f4eeb6d992fbfb5fad07e47f443d5bf10234429d8bda690c"
+    },
+    "src/locator_demo/web/demo_recording.py": {
+      "worktree_sha256": "4c4586f6fd2a31f442cbba4bb6e217d0ca470b4ca39ef76c278c90cd0fb411d6",
+      "git_blob_sha256": "f85291e3bf6c162c6ce6358b39b49ee2f47260548f9cd61be8845dcb3ca97dad"
+    },
+    "src/locator_demo/web/origin_guard.py": {
+      "worktree_sha256": "9b5ed8785f0a31dba24ca90c27e3807d6ec5b9700d145f7fcaf3dc3bfbc573f8",
+      "git_blob_sha256": "9b5ed8785f0a31dba24ca90c27e3807d6ec5b9700d145f7fcaf3dc3bfbc573f8"
+    },
+    "src/locator_demo/web/servo_debug.py": {
+      "worktree_sha256": "5bfd8ccc3d715691fa81300ed59aa18023bbb6e11739032b06333ec820e17331",
+      "git_blob_sha256": "5bfd8ccc3d715691fa81300ed59aa18023bbb6e11739032b06333ec820e17331"
+    },
+    "src/locator_demo/web/static/app.js": {
+      "worktree_sha256": "8676eaf025c86a840be7ddc5e06ed1096d5e1b9601458db3cef13c88ee178d42",
+      "git_blob_sha256": "c4d31ebfbf5c87ef823259c092fabdbcfcf7dac448684ad6f3e9f18ca5e44b54"
+    },
+    "src/locator_demo/web/static/array_view.js": {
+      "worktree_sha256": "1ff7c4d2d613ebe48fece677e369ec7a35f625f27f249ce2feca56f2aadffa8c",
+      "git_blob_sha256": "1ff7c4d2d613ebe48fece677e369ec7a35f625f27f249ce2feca56f2aadffa8c"
+    },
+    "src/locator_demo/web/static/audio_view.js": {
+      "worktree_sha256": "f4cf9b0ee2468a8f0afa1f6ce852b12b8fe7a894de60cdf85b4464bc34a61f2d",
+      "git_blob_sha256": "8e936d1138d1679734b33fdddd5a99ff05cd0a74c8916f394fcf9e7e313f19f7"
+    },
+    "src/locator_demo/web/static/console.css": {
+      "worktree_sha256": "c1fdcb52858c8e1813df04ef74748633d0de765dd9d584869f4a41bf9c0c9479",
+      "git_blob_sha256": "c1fdcb52858c8e1813df04ef74748633d0de765dd9d584869f4a41bf9c0c9479"
+    },
+    "src/locator_demo/web/static/demo_recording.css": {
+      "worktree_sha256": "62d6170e31b9d1d1b298e04dbf113637e4016bd528ac65ecbe7e3f44d27f662e",
+      "git_blob_sha256": "62d6170e31b9d1d1b298e04dbf113637e4016bd528ac65ecbe7e3f44d27f662e"
+    },
+    "src/locator_demo/web/static/demo_recording.js": {
+      "worktree_sha256": "874ba480f8ffe19df9bdd43b0832403a43e154c401fd6aa0ae4a3d33a0884f5b",
+      "git_blob_sha256": "a2a5276986e5f785009de414078ca6c6ee2b29430876c395f3768c965da12cee"
+    },
+    "src/locator_demo/web/static/fixation_view.js": {
+      "worktree_sha256": "b4bc6d1409a06b3b13f571f65baa1d57a31885bb5b1b6812ce0e7d7e81578289",
+      "git_blob_sha256": "b4bc6d1409a06b3b13f571f65baa1d57a31885bb5b1b6812ce0e7d7e81578289"
+    },
+    "src/locator_demo/web/static/index.html": {
+      "worktree_sha256": "94ffef93c69210f295a2ea0c8ba88033072826afbfaa3ea46e6f4a2f449e2b72",
+      "git_blob_sha256": "880791193904c91535789c43468cee4393ade4adb3e59a6a0f992756c4694269"
+    },
+    "src/locator_demo/web/static/legacy-r30/app.js": {
+      "worktree_sha256": "8c544224993657cb25658b55e4ed99d1aa2da1b38b5482fb6ba27a68800f7fe4",
+      "git_blob_sha256": "1c43ec7bff61d592279d42babcabca32b369517b124bd58cc529c1ac0ae32124"
+    },
+    "src/locator_demo/web/static/legacy-r30/audio_view.js": {
+      "worktree_sha256": "fd5eba42f40a179c288da0143f66968104cec7782e82b0ba555c75b4d9e6be50",
+      "git_blob_sha256": "fd5eba42f40a179c288da0143f66968104cec7782e82b0ba555c75b4d9e6be50"
+    },
+    "src/locator_demo/web/static/legacy-r30/index.html": {
+      "worktree_sha256": "0a0255b9f9eead8b68619c1dd8d3010d67383e79d2f8ae9f8692062fd54d7f51",
+      "git_blob_sha256": "41a103fe225ad2dddddbbfa539b836decf70c72ff6cfae90d22c37009348027a"
+    },
+    "src/locator_demo/web/static/legacy-r30/servo-debug.css": {
+      "worktree_sha256": "2605e268f474e1226ca17f16191dc72dfa66daadecf3a3e16f656d82a4a93c24",
+      "git_blob_sha256": "2605e268f474e1226ca17f16191dc72dfa66daadecf3a3e16f656d82a4a93c24"
+    },
+    "src/locator_demo/web/static/legacy-r30/servo-debug.html": {
+      "worktree_sha256": "29a93e60976432b0b6b12c0829c1bc7c9fc6630f894dd82203883e5ed195221b",
+      "git_blob_sha256": "29a93e60976432b0b6b12c0829c1bc7c9fc6630f894dd82203883e5ed195221b"
+    },
+    "src/locator_demo/web/static/legacy-r30/servo-debug.js": {
+      "worktree_sha256": "26b07cce67e4e4677745cb5b7b235c0a519cf8178c1344d2bdada2987f42de21",
+      "git_blob_sha256": "26b07cce67e4e4677745cb5b7b235c0a519cf8178c1344d2bdada2987f42de21"
+    },
+    "src/locator_demo/web/static/legacy-r30/styles.css": {
+      "worktree_sha256": "83759bb4d9d52ab556938f18c9aac118688eae08fbc8429bc211e5ca3de6d918",
+      "git_blob_sha256": "718591c404b7ca19a4ceb1f493a1ad9bca3766ca8b7c36181a08fd9c7a162120"
+    },
+    "src/locator_demo/web/static/servo-debug.css": {
+      "worktree_sha256": "2605e268f474e1226ca17f16191dc72dfa66daadecf3a3e16f656d82a4a93c24",
+      "git_blob_sha256": "2605e268f474e1226ca17f16191dc72dfa66daadecf3a3e16f656d82a4a93c24"
+    },
+    "src/locator_demo/web/static/servo-debug.html": {
+      "worktree_sha256": "29a93e60976432b0b6b12c0829c1bc7c9fc6630f894dd82203883e5ed195221b",
+      "git_blob_sha256": "29a93e60976432b0b6b12c0829c1bc7c9fc6630f894dd82203883e5ed195221b"
+    },
+    "src/locator_demo/web/static/servo-debug.js": {
+      "worktree_sha256": "26b07cce67e4e4677745cb5b7b235c0a519cf8178c1344d2bdada2987f42de21",
+      "git_blob_sha256": "26b07cce67e4e4677745cb5b7b235c0a519cf8178c1344d2bdada2987f42de21"
+    },
+    "src/locator_demo/web/static/styles.css": {
+      "worktree_sha256": "83759bb4d9d52ab556938f18c9aac118688eae08fbc8429bc211e5ca3de6d918",
+      "git_blob_sha256": "718591c404b7ca19a4ceb1f493a1ad9bca3766ca8b7c36181a08fd9c7a162120"
+    },
+    "src/locator_demo/web/static/ui-responsive-check.html": {
+      "worktree_sha256": "690daafba4eb5998a6e97f8049d98729ca89b24b9174d52566170af9b524a61d",
+      "git_blob_sha256": "690daafba4eb5998a6e97f8049d98729ca89b24b9174d52566170af9b524a61d"
+    },
+    "src/locator_demo/web/static/ui_shell.js": {
+      "worktree_sha256": "505d4e5fc6b5b651f00f47a654a9fdea4cba78dfe251e330c6665e71c680ccf9",
+      "git_blob_sha256": "f5a55df7f9f7dfc15a9dbfbf96173e8fe65f28d62e18c5802c75271389eab3f7"
+    }
+  },
+  "scope": "Software and simulated-actuator checks in the existing environment. Physical speaker switching, absolute angles, dynamic array calibration and clean-machine installation are not accepted by these checks."
+}

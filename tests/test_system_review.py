@@ -171,6 +171,9 @@ class TransitionTests(unittest.TestCase):
 
     def test_unchanged_feature_save_does_not_interrupt_smooth_motion(self):
         r = self.runtime()
+        # Migrate once, then verify an unchanged explicit R52 mode is a no-op.
+        r.update_feature_config(FeatureConfigRequest(primary_mode='visual_priority'))
+        r.head.cancel.reset_mock()
         r.update_feature_config(FeatureConfigRequest(**asdict(r.features)))
         r.head.cancel.assert_not_called()
         self.assertTrue(r.running)

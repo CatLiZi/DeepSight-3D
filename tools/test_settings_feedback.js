@@ -41,5 +41,41 @@ const test=async(name,fn)=>{await fn();cases.push(name);};
    assert.match(element('action-feedback').textContent,/失败/);
    assert.doesNotMatch(element('action-feedback').textContent,/已保存/);
  });
+ await test('checking listen deselects visual and sends one primary owner',async()=>{
+   let payload;
+   context.fetch=async(url,options)=>{
+     payload=JSON.parse(options.body);
+     return {ok:true,json:async()=>({running:false,features:payload})};
+   };
+   element('audio-enabled-input').checked=true;
+   element('visual-enabled-input').checked=true;
+   element('camera-enabled-input').checked=true;
+   await context.saveFeatureConfig({target:element('audio-enabled-input')});
+   assert.equal(payload.primary_mode,'audio_primary');
+   assert.equal(payload.visual_enabled,false);
+   assert.equal(element('tracking-strategy-select').value,'audio_primary');
+ });
+ await test('checking visual deselects listen and sends visual primary',async()=>{
+   element('visual-enabled-input').checked=true;
+   await context.saveFeatureConfig({target:element('visual-enabled-input')});
+   assert.equal(element('audio-enabled-input').checked,false);
+   assert.equal(element('tracking-strategy-select').value,'visual_priority');
+ });
+ await test('turning off the active owner produces preview rather than enabling the other',async()=>{
+   element('visual-enabled-input').checked=false;
+   await context.saveFeatureConfig({target:element('visual-enabled-input')});
+   assert.equal(element('audio-enabled-input').checked,false);
+   assert.equal(element('visual-enabled-input').checked,false);
+ });
+ await test('rejected mode change restores server state and enables switches again',async()=>{
+   context.fetch=async(url)=>url==='/api/session'
+     ? {ok:true,json:async()=>({features:{primary_mode:'visual_priority',audio_enabled:false,visual_enabled:true,camera_enabled:true}})}
+     : {ok:false,status:500,headers:{get(){return null;}},json:async()=>({detail:'failed save'})};
+   element('audio-enabled-input').checked=true;
+   await assert.rejects(()=>context.saveFeatureConfig({target:element('audio-enabled-input')}),/failed save/);
+   assert.equal(element('audio-enabled-input').checked,false);
+   assert.equal(element('visual-enabled-input').checked,true);
+   assert.equal(element('audio-enabled-input').disabled,false);
+ });
  console.log(JSON.stringify({successful:true,tests:cases.length,cases}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
