@@ -26,8 +26,8 @@ def main():
     from locator_demo.stereo_calibration import StereoRectifier,alignment_profile_path
     rig=load_settings(ROOT/'configs/panda-assembled-r51.example.json')
     limits=rig.axis_limits
-    require((limits.yaw_min,limits.yaw_center,limits.yaw_max)==(1404,1952,2500),'Unexpected yaw limits')
-    require((limits.pitch_min,limits.pitch_center,limits.pitch_max)==(1255,1555,1855),'Unexpected pitch limits')
+    require((limits.yaw_min,limits.yaw_center,limits.yaw_max)==(1500,2000,2500),'Unexpected yaw limits')
+    require((limits.pitch_min,limits.pitch_center,limits.pitch_max)==(1255,1550,1855),'Unexpected pitch limits')
     audio=rig.audio_capture
     require(audio.localization_mode=='four_mic' and audio.channels==4 and audio.wasapi_raw,'Four-channel RAW profile missing')
     require((audio.ear_left_channel,audio.ear_right_channel,audio.body_left_channel,audio.body_right_channel)==(2,3,1,4),'Microphone mapping differs')

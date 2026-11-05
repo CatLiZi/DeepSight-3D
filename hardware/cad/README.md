@@ -1,11 +1,11 @@
 # 熊猫建模核心文件
 
-2026年10月28日，项目所有者指定 `panda_blender_github.zip` 中的两份Blender工程为当前暂定的核心建模版本。仓库按头部、身体分别归档，模型字节与原始压缩包一致。
+2026年10月28日，项目所有者指定 `panda_blender_github.zip` 中的两份Blender工程为当前暂定的核心建模版本。仓库按头部、身体分别归档。2026年11月5日仅清除了模型内历史电脑账户路径：可表示的目录改为 Blender 相对路径 `//`，不再使用的残留路径清空。几何、对象结构和依赖经重新打开与校验保持一致；因路径脱敏及重新压缩，文件字节和哈希与原压缩包不同。
 
 | 部分 | 原生模型 | 版本 | 文件大小 |
 |---|---|---|---:|
-| 头部 | [panda_head_only_V17.blend](head_shell/panda_head_only_V17.blend) | V17 | 约12.67 MiB |
-| 身体 | [panda_body_V25_shells_V16_cylinder.blend](body_shell/panda_body_V25_shells_V16_cylinder.blend) | V25壳体与V16圆柱底座组合 | 约23.88 MiB |
+| 头部 | [panda_head_only_V17.blend](head_shell/panda_head_only_V17.blend) | V17 | 约12.39 MiB |
+| 身体 | [panda_body_V25_shells_V16_cylinder.blend](body_shell/panda_body_V25_shells_V16_cylinder.blend) | V25壳体与V16圆柱底座组合 | 约23.47 MiB |
 
 在Blender中选择“文件→打开”，打开所需的 `.blend`。本次使用 **Blender 5.2.2 LTS** 成功读取两份文件；原生文件保留了独立对象、材质、装配件与参考件。两份文件均为公制，内部以米计量、界面显示毫米。导出制造文件时须核对毫米尺寸、朝向及比例。
 

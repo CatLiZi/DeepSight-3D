@@ -1,5 +1,7 @@
 Python 调用新摄像头和四麦阵列的独立样例
 
+历史采集样例说明：主项目已更新至R51，当前四麦定位与使用方式请参考仓库主页和 docs/CURRENT_RELEASE_CN.md。
+
 一、USB 接口不等于 COM 串口
 
 USB 是物理连接和总线。同一块板可以暴露多个功能接口：
@@ -18,7 +20,7 @@ COM4 的波特率、命令和用途尚未确认。本目录的样例不会自动
 PowerShell 运行：
 
 conda activate demo
-Set-Location 'C:\Users\SLAI\Desktop\DeepSight-3D'
+Set-Location '<本地仓库目录>'
 
 新环境需要 python -m pip install sounddevice pyserial；FFmpeg 需单独安装并加入 PATH。
 以下脚本不依赖主项目，也不会修改其配置。
@@ -78,4 +80,4 @@ python .\hardware_examples\serial_basics.py
 可用 --output 显式指定路径，已存在的文件不会被覆盖。
 摄像头或麦克风若正被其他程序独占，请先结束对应采集，再运行样例。
 
-本目录是教学和采集验证样例，主项目的正式适配代码尚未修改。
+本目录是教学和采集验证样例；当前主项目的正式适配与验证状态请参考 docs/CURRENT_RELEASE_CN.md。

@@ -43,7 +43,8 @@
       "pitch_min": 1255,
       "pitch_center": 1555,
       "pitch_max": 1855
-    }
+    },
+    "reference_software_limits_note": "Historical calibration-reference limits from 2026-10-28; see configs/panda-assembled-r51.example.json for the later control profile."
   },
   "active_localization": "four_mic",
   "body_channels_used_for_steering": "conditional_common_frame_only",

@@ -72,11 +72,11 @@
     "max_jerk": 3000.0
   },
   "axis_limits": {
-    "yaw_min": 1404,
-    "yaw_center": 1952,
+    "yaw_min": 1500,
+    "yaw_center": 2000,
     "yaw_max": 2500,
     "pitch_min": 1255,
-    "pitch_center": 1555,
+    "pitch_center": 1550,
     "pitch_max": 1855
   },
   "audio": {

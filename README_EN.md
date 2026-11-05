@@ -8,6 +8,10 @@ Stereo vision · Four-microphone localization · Audio-visual selection · Smoot
 
 [中文](README.md) · [Quick start](#quick-start) · [Architecture](#architecture) · [Hardware and CAD](#hardware-and-cad) · [Validation and limits](#validation-and-limits)
 
+[Progress report (HTML, Chinese)](docs/report/index.html) · [Assessment and open issues (HTML, Chinese)](docs/report/assessment.html)
+
+<sub>GitHub shows HTML source in its file view. Clone or download the repository and open these privacy-filtered reports in a browser for offline viewing.</sub>
+
 <img src="docs/assets/panda-assembled-cad.png" alt="Panda assembly rendered from the repository head and body Blender source files" width="720" />
 
 <sub>Rendered by combining the V17 head and V25 body at their source-file coordinates. This is a design preview, not a new tolerance or collision certification.</sub>
@@ -34,7 +38,7 @@ DeepSight-3D is a panda-shaped research prototype for **selective audio-visual p
 <tr><td><img src="docs/assets/head-interior-cad.png" alt="CAD render of the V17 head interior and ear wiring" /></td><td><img src="docs/assets/body-interior-cad.png" alt="CAD render of the V25 body interior and body microphones" /></td></tr>
 </table>
 
-The views are rendered from the repository files below. Rear shells are temporarily hidden and existing modeled wiring is shown for inspection; **the source models are not modified or re-saved**. The [ear microphone holder reference](docs/assets/microphone-holder-reference.png) was supplied by the project team; its exact correspondence to a CAD revision has not been independently rechecked.
+The views are rendered from the repository models below. Rear shells are temporarily hidden and existing modeled wiring is shown for inspection. Historical computer paths were subsequently removed from the models; geometry and object structure were checked and preserved. The [ear microphone holder reference](docs/assets/microphone-holder-reference.png) was supplied by the project team; its exact correspondence to a CAD revision has not been independently rechecked.
 
 | Component | Editable source | Contents |
 | --- | --- | --- |
@@ -52,13 +56,15 @@ The repository currently contains editable `.blend` sources, **not verified fina
 | Stereo stream | MJPEG side-by-side **3840×1080**, 1920×1080 per eye, 60 fps requested | Historical captures received roughly 33–50 fps; request rate and synchronized exposure error are not verified performance |
 | Microphones | YDPI4MIC, four analog MEMS microphones, WASAPI RAW, 48 kHz / 16-bit | USB audio VID:PID `EF09:459D`; all four raw channels are retained |
 | Spacing | Ears about 13.55 cm; body pair about 7.55 cm; same-side ear–body about 17.7–17.8 cm | User measurements/estimates, not a complete 3D acoustic calibration |
-| Two servo axes | Yaw ID 0: 1404 / 1952 / 2500; Pitch ID 2: 1255 / 1555 / 1855 | Current rig **software position units**, minimum / center / maximum; mechanical limits still require field confirmation |
+| Two servo axes | Yaw ID 0: 1500 / 2000 / 2500; Pitch ID 2: 1255 / 1550 / 1855 | Rig **software position units** recorded on 2026-11-04, minimum / control center / maximum; mechanical limits still require field confirmation |
 | Servo angle scale | User-provided specification: 2000 / 270 ≈ **7.4074 ticks/degree** | Used for acoustic goals and head/body yaw conversion since R50; not a measured assembled-rig angle calibration |
 | Control and UI | Python, FastAPI, local dashboard, 50 Hz smooth trajectory | 50 Hz is command-trajectory frequency, not 50 Hz physical position feedback |
 
 <img src="docs/assets/microphone-layout.svg" alt="Four-microphone layout with left and right named from the bear's perspective" width="100%" />
 
 Left and right are the **bear’s own**: left ear CH2, right ear CH3; left body CH1, right body CH4. The ears move with the head while the body pair remains fixed, so the two coordinate frames must be aligned with pose. [Rig example](configs/panda-assembled-r51.example.json) · [Microphone layout](calibration/microphone_layout.json)
+
+The control center and acoustic geometry reference are distinct: the example uses yaw control center 2000 while the existing head-to-body acoustic reference remains 1952. Recheck the acoustic reference if the physical head/body alignment changes; do not assume the two values are interchangeable.
 
 ## Architecture
 

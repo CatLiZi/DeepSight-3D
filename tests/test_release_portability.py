@@ -29,8 +29,8 @@ class PortableReleaseTests(unittest.TestCase):
     def test_known_rig_profile_axis_limits_are_explicit(self):
         config=load_settings(ROOT/'configs/panda-assembled-r51.example.json')
         limits=config.axis_limits
-        self.assertEqual((limits.yaw_min,limits.yaw_center,limits.yaw_max),(1404,1952,2500))
-        self.assertEqual((limits.pitch_min,limits.pitch_center,limits.pitch_max),(1255,1555,1855))
+        self.assertEqual((limits.yaw_min,limits.yaw_center,limits.yaw_max),(1500,2000,2500))
+        self.assertEqual((limits.pitch_min,limits.pitch_center,limits.pitch_max),(1255,1550,1855))
 
     def test_historical_failure_fixture_is_sanitized_and_bundled(self):
         rows=json.loads((ROOT/'tests/fixtures/original-regression-26.json').read_text(encoding='utf-8'))

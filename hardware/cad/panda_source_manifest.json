@@ -11,8 +11,8 @@
     {
       "archive_entry": "head/panda_head_only_V17.blend",
       "path": "hardware/cad/head_shell/panda_head_only_V17.blend",
-      "bytes": 13289034,
-      "sha256": "414d32a3b795917e7555f442307c35a142e378cc5391316a92b292fdfd78af75",
+      "bytes": 12987841,
+      "sha256": "dc15b569104cba8ab706d59fc372fce603338f18ee84e20aa8f432bbbc9df88b",
       "role": "head",
       "version_label": "V17",
       "inspection": {
@@ -32,13 +32,21 @@
         "unpacked_image_dependencies": 0,
         "unpacked_used_font_dependencies": 0,
         "packed_images": 0
+      },
+      "original_archive_sha256": "414d32a3b795917e7555f442307c35a142e378cc5391316a92b292fdfd78af75",
+      "original_archive_bytes": 13289034,
+      "path_sanitization": {
+        "date": "2026-11-05",
+        "scope": "unused historical paths cleared; old local directory replaced by Blender-relative //",
+        "only_path_bytes_changed_in_decompressed_payload": true,
+        "blender_5_2_2_opened_and_geometry_fingerprint_matches": true
       }
     },
     {
       "archive_entry": "body/panda_body_V25_shells_V16_cylinder.blend",
       "path": "hardware/cad/body_shell/panda_body_V25_shells_V16_cylinder.blend",
-      "bytes": 25038354,
-      "sha256": "38b0d51b3564c4edd51dfad404e875af1aaa92729768e092c03fa1608eadd9eb",
+      "bytes": 24606530,
+      "sha256": "294bf560ac071af350daf233539bb5138c2b71bca2a24e3b2d3c44c5ea20d317",
       "role": "body",
       "version_label": "V25_shells_V16_cylinder",
       "inspection": {
@@ -58,12 +66,22 @@
         "unpacked_image_dependencies": 0,
         "unpacked_used_font_dependencies": 0,
         "packed_images": 0
+      },
+      "original_archive_sha256": "38b0d51b3564c4edd51dfad404e875af1aaa92729768e092c03fa1608eadd9eb",
+      "original_archive_bytes": 25038354,
+      "path_sanitization": {
+        "date": "2026-11-05",
+        "scope": "unused historical paths cleared; old local directory replaced by Blender-relative //",
+        "only_path_bytes_changed_in_decompressed_payload": true,
+        "blender_5_2_2_opened_and_geometry_fingerprint_matches": true
       }
     }
   ],
-  "model_bytes_preserved": true,
+  "model_bytes_preserved": false,
   "STL_3MF_or_slicer_projects_in_source_archive": false,
   "geometry_modified_for_publication": false,
   "physical_print_motion_or_acoustic_tests_repeated_for_publication": false,
-  "archive_git_config_merged_over_repository_root": false
+  "archive_git_config_merged_over_repository_root": false,
+  "path_metadata_sanitized": true,
+  "model_geometry_and_dependencies_verified_unchanged": true
 }

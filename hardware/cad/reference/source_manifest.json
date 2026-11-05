@@ -8,15 +8,21 @@
       "path": "hardware/drawings/reference/assembly_overview.png",
       "source_relative_path": "Blender预览/complete_model_six_actuators.png",
       "role": "assembly_overview",
-      "bytes": 1260307,
-      "sha256": "62f2b96ccc564d1ddf315c02335581d9086e877172540bca2abccc29fc8c1ae6"
+      "bytes": 1259960,
+      "sha256": "876fda2e40e8bea25b57615b6d538d5fd0a94f36df2e38215b6d152517102031",
+      "source_before_metadata_removal_sha256": "62f2b96ccc564d1ddf315c02335581d9086e877172540bca2abccc29fc8c1ae6",
+      "source_before_metadata_removal_bytes": 1260307,
+      "publication_note": "PNG textual and EXIF metadata removed; decoded pixels unchanged"
     },
     {
       "path": "hardware/drawings/reference/head_base_axes.png",
       "source_relative_path": "Blender预览/head_candidate_upright_axes.png",
       "role": "illustrative_axis_view",
-      "bytes": 906665,
-      "sha256": "58ce94c62da1aa69be11d0160c0cc840684f01cb5f4247b50c34783f2d94d38c"
+      "bytes": 906318,
+      "sha256": "040584b98e87ddab56ed373267f6d50c43669eb4bf401d101820db54b8966b72",
+      "source_before_metadata_removal_sha256": "58ce94c62da1aa69be11d0160c0cc840684f01cb5f4247b50c34783f2d94d38c",
+      "source_before_metadata_removal_bytes": 906665,
+      "publication_note": "PNG textual and EXIF metadata removed; decoded pixels unchanged"
     }
   ],
   "geometry": {

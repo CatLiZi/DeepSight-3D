@@ -5,7 +5,7 @@ This file is written for Codex or another coding agent taking over a fresh clone
 ## One-Line User Prompt
 
 ```text
-Clone git@github.com:landert-elon/positioning_robots.git, read docs/CODEX_SETUP.md, install dependencies, run tests, start the demo, and help me configure my microphone, camera, yaw servo, pitch servo, movement direction, and audio channel mapping.
+Clone https://github.com/CatLiZi/DeepSight-3D.git, read docs/CODEX_SETUP.md, install dependencies, run tests, start the demo, and help me configure my microphone, camera, yaw servo, pitch servo, movement direction, and audio channel mapping.
 ```
 
 ## Goal
@@ -16,23 +16,23 @@ Bring up the positioning robot demo on a Windows machine with minimal manual gue
 
 - Windows 10/11 PowerShell.
 - Python 3.10+.
-- Git with SSH access to GitHub.
+- Git with access to GitHub.
 - `ffmpeg` on `PATH`.
 - Optional but useful: `node` for JavaScript syntax checks.
 - Real hardware when available:
   - CH340 USB serial adapter for the servo bus.
   - Zhongling/ZP bus servos.
-  - Stereo microphone.
-  - DirectShow camera.
+  - Four-channel USB microphone with WASAPI RAW support.
+  - Side-by-side stereo USB camera.
 
 ## Clone
 
 ```powershell
-git clone git@github.com:landert-elon/positioning_robots.git
-cd positioning_robots
+git clone https://github.com/CatLiZi/DeepSight-3D.git
+cd DeepSight-3D
 ```
 
-If SSH is not configured, verify:
+If you choose the optional SSH remote instead of HTTPS, verify:
 
 ```powershell
 ssh -T git@github.com
