@@ -72,7 +72,14 @@ The control center and acoustic geometry reference are distinct: the example use
 
 ## Architecture
 
-<img src="docs/assets/system-architecture.svg" alt="Stereo vision and four-microphone audio feed visual-first selection and bounded head control" width="100%" />
+The [R52 module specification](docs/ALGORITHM_ARCHITECTURE_R52_CN.md) describes the current architecture: parallel perception, mutually exclusive audio-primary / visual-primary ownership, one shared smooth controller, and a separate D1 recording branch.
+
+[Diagram-agent handoff prompt](docs/AGENT_PROMPT_FRAMEWORK_R52_CN.md) · [R52 workflow and validation report](docs/report/primary-modes-r52.html)
+
+<!-- R52_ARCHITECTURE_HANDOFF: replace this historical diagram and its generator, then remove the legacy notice. -->
+<details><summary>Historical R51 diagram — does not include the R52 audio-primary takeover path</summary>
+<img src="docs/assets/system-architecture.svg" alt="Historical R51 visual-first architecture; R52 exclusive control modes are not yet drawn" width="100%" />
+</details>
 
 ### Vision: both eyes contribute to the viewing direction
 
@@ -90,8 +97,10 @@ A body bearing is transformed into head coordinates only when pose and acoustic 
 
 ### Selection and motion
 
-- **Visual priority:** preserve a trustworthy visible target when sound is absent or conflicts with the scene; apparent face size is only a relative cue.
-- **Audio guidance:** compare a reliable sound sector with the whole angular extent of each face, then rank using relative size, visual quality, and continuity. The score is a rule-based association score, not a calibrated speaker probability.
+- **Audio primary:** a confirmed sound establishes a finite yaw goal. After approaching it, associate an actual face in that sector and refine yaw/pitch visually. A newly confirmed source can interrupt the old visual assist.
+- **Visual primary:** retain a reliable visible target when sound is absent or conflicting; use relative face size and quality when acquiring. Without a visual owner, an authorized finite sound search remains possible.
+- **Exclusive ownership:** select one primary mode while retaining auxiliary perception. Switching modes revokes old intent; both switches off means preview only.
+- **Cross-modal association:** compare a reliable sound sector with the whole angular extent of each face, then rank using relative size, visual quality, and continuity. The score is a rule-based association score, not a calibrated speaker probability.
 - **Finite target:** a short pause in speech need not erase an authorized destination; a historical blue overlay is not new acoustic evidence.
 - **Bounded control:** R50+ converts a bearing with the configured ticks/degree scale while separately limiting each step and the 50 Hz trajectory. Invalid position feedback stops motion; actual mechanical accuracy and smoothness still require field validation.
 
