@@ -48,4 +48,9 @@ test('R51 is recognized with its preserved smooth controller',()=>{
   assert.match(element('ui-runtime-revision').textContent,/R51/);
   assert.match(element('ui-adaptive-motion').textContent,/已加载/);
 });
+test('R53 is recognized after the manual-motion ownership repair',()=>{
+  update({locked:false},'','R53');
+  assert.match(element('ui-runtime-revision').textContent,/R53/);
+  assert.match(element('ui-adaptive-motion').textContent,/已加载/);
+});
 console.log(JSON.stringify({successful:true,tests:cases.length,cases}));

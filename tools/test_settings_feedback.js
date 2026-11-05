@@ -6,7 +6,7 @@ function element(id){
   if(!elements.has(id))elements.set(id,{value:'',checked:false,textContent:'',addEventListener(){},classList:{remove(){},add(){}}});
   return elements.get(id);
 }
-const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:element,addEventListener(){}},
+const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:element,querySelectorAll(){return [element('center-btn'),element('home-btn')];},addEventListener(){}},
   AudioView:{AudioPresentation:function(){}},setTimeout(){},clearTimeout(){}});
 vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);
 const cases=[];
@@ -76,6 +76,37 @@ const test=async(name,fn)=>{await fn();cases.push(name);};
    assert.equal(element('audio-enabled-input').checked,false);
    assert.equal(element('visual-enabled-input').checked,true);
    assert.equal(element('audio-enabled-input').disabled,false);
+ });
+ await test('centre comes from the server rather than stale browser defaults',async()=>{
+   const requests=[];
+   context.fetch=async(url,args)=>{
+     requests.push({url,body:JSON.parse(args.body)});
+     return {ok:true,json:async()=>({target:{yaw:2000,pitch:1550},running:false,status:'submitted',error:null})};
+   };
+   await context.sendCenter();
+   assert.equal(requests[0].url,'/api/head/center');
+   assert.deepEqual(requests[0].body,{time_ms:1500});
+   assert.equal(element('yaw-input').value,2000);
+   assert.equal(element('pitch-input').value,1550);
+   assert.match(element('action-feedback').textContent,/目标已提交.*实际位置/);
+   assert.doesNotMatch(element('action-feedback').textContent,/已到位/);
+ });
+ await test('both centre controls are disabled while feedback is pending and duplicate request is coalesced',async()=>{
+   let resolve,count=0;
+   context.fetch=()=>{count++;return new Promise(done=>{resolve=done;});};
+   element('center-btn').disabled=false;element('home-btn').disabled=false;
+   const first=context.sendCenter();
+   assert.equal(element('center-btn').disabled,true);assert.equal(element('home-btn').disabled,true);
+   await context.sendCenter();assert.equal(count,1);
+   resolve({ok:true,json:async()=>({target:{yaw:2000,pitch:1550},running:false,error:null})});
+   await first;
+   assert.equal(element('center-btn').disabled,false);assert.equal(element('home-btn').disabled,false);
+ });
+ await test('failed centre reports its feedback error and unlocks the controls',async()=>{
+   context.fetch=async()=>({ok:true,headers:{get(){return null;}},json:async()=>({error:'No valid position feedback'})});
+   await assert.rejects(()=>context.sendCenter(),/No valid position feedback/);
+   assert.match(element('action-feedback').textContent,/失败/);
+   assert.equal(element('center-btn').disabled,false);
  });
  console.log(JSON.stringify({successful:true,tests:cases.length,cases}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -51,7 +51,7 @@ class BrowserOriginGuardTests(unittest.TestCase):
     def test_same_origin_websocket_receives_state(self):
         with TestClient(self.app) as client:
             with client.websocket_connect('/ws',headers={'Origin':'http://testserver'}) as socket:
-                self.assertEqual(socket.receive_json()['algorithm_revision'],'R52')
+                self.assertEqual(socket.receive_json()['algorithm_revision'],'R53')
 
     def test_cross_origin_websocket_is_closed_without_state(self):
         with TestClient(self.app) as client:

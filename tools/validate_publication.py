@@ -55,9 +55,9 @@ def main():
     revisions=[v.value for n in ast.walk(syntax) if isinstance(n,ast.Dict)
                for k,v in zip(n.keys,n.values) if isinstance(k,ast.Constant)
                and k.value=='algorithm_revision' and isinstance(v,ast.Constant)]
-    require('R52' in revisions,'Source is not the expected R52 revision')
+    require('R53' in revisions,'Source is not the expected R53 revision')
 
-    result={'successful':True,'revision':'R52','frontend_tests':frontend['tests'],
+    result={'successful':True,'revision':'R53','frontend_tests':frontend['tests'],
             'four_mic_profile_valid':True,'sensor_features_default_off':True,
             'physical_yaw_scale_configured':True,'alignment_metric_output_enabled':False,
             'board_pdf_present':True,'silero_model_digest_valid':True,'cad_sources_digest_valid':True,

@@ -96,7 +96,7 @@
     const speed=Array.isArray(velocity)?Math.hypot(velocity[0]*(visual.frame_width || 0)/2,velocity[1]*(visual.frame_height || 0)/2):null;
     put('ui-adaptive-motion',approach.controller==='adaptive_image_velocity'
       ? `图像移动约 ${finite(speed)?Math.round(speed):'—'} px/s · 请求动作 ${approach.move_time_ms} ms · 左右步幅上限 ${approach.yaw_step_cap} 刻度`
-      : ['R32','R33','R34','R35','R36','R37','R38','R39','R40','R41','R42','R43','R44','R45','R46','R47','R48','R49','R50','R51','R52'].includes(snapshot.algorithm_revision)?'动态追踪已加载 · 等待新目标画面':'动态追踪待正常重启加载');
+      : ['R32','R33','R34','R35','R36','R37','R38','R39','R40','R41','R42','R43','R44','R45','R46','R47','R48','R49','R50','R51','R52','R53'].includes(snapshot.algorithm_revision)?'动态追踪已加载 · 等待新目标画面':'动态追踪待正常重启加载');
     const health=byId('motion-health');if(health)health.dataset.fault=String(Boolean(fault));
     const ready=Boolean(capture.ok && input.ok);const deviceDot=byId('ui-device-dot');if(deviceDot)deviceDot.dataset.ready=String(ready);
     put('ui-device-summary',ready?'双目与音频已连接':capture.ok?'视觉在线 · 等待音频':input.ok?'音频在线 · 等待视觉':'等待采集设备');

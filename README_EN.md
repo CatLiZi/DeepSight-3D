@@ -29,6 +29,8 @@ DeepSight-3D is a panda-shaped research prototype for **selective audio-visual p
 - **Select:** in audio-primary mode, turn toward a confirmed sound and use the matching face for visual refinement; a new confirmed source can interrupt. In visual-primary mode, retain a reliable face and use sound as assistance.
 - **Turn:** retain a bounded acoustic destination, approach it with a smooth trajectory, and revoke motion on stop, visual takeover, or feedback fault.
 
+> **R53 control repair:** paused perception can no longer cancel manual centering, jogs or pose commands. A server-side center action uses saved limits and fresh position feedback. 918 Python tests and 127 frontend checks pass; the operator confirmed normal centering after restart, with valid stationary position feedback. [Details](docs/CONTROL_OWNERSHIP_R53_CN.md)
+
 > **R52 update:** [Exclusive audio/visual primary modes](docs/report/primary-modes-r52.html) are implemented; 904 Python regressions and 123 frontend checks pass. R52 was verified loaded after a normal local restart; alternating-speaker behavior still needs a field trial. Capture settings and smooth-motion limits are preserved.
 
 > **Previous status: R51 indoor-demo candidate / research prototype.** The project team reports that the current overall experience is usable. R51 adds local browser-origin protection and fresh-checkout portability fixes, verified in simulation. Absolute acoustic angle, full-pose four-microphone fusion, multiple speakers, and metric depth still need field acceptance; test counts are not physical accuracy.

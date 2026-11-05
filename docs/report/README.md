@@ -15,3 +15,5 @@ R51公开版本的历史复核完成 859 项 Python 回归、104 项前端检查
 R52与D1录制的本次发布复核见[904项Python／123项前端检查记录](../VALIDATION_R52.md)，新增[三段英文演示文案](../DEMO_DIALOGUE_EN.md)。旧验证数量不与本次相加。
 
 现行模块和图稿交接：[R52算法架构说明](../ALGORITHM_ARCHITECTURE_R52_CN.md) · [给制图agent的提示词](../AGENT_PROMPT_FRAMEWORK_R52_CN.md)。旧总图暂保留为R51历史参考；本轮没有改变执行算法或重绘模型结构。
+
+[R53回中与手动控制修复](../CONTROL_OWNERSHIP_R53_CN.md)：自动暂停时保留手动轨迹、服务端统一中位、918项Python和127项前端验证。

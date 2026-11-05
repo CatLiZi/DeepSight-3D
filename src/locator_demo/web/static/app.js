@@ -1,5 +1,6 @@
 const state = {
   connected: false,
+  centerPending: false,
   eventsSeen: new Set(),
   lastFrame: "",
   dshowDevices: [],
@@ -446,6 +447,27 @@ function connectWs() {
     $("status-chip").textContent = "重连中";
     setTimeout(connectWs, 1000);
   };
+}
+
+async function sendCenter() {
+  if (state.centerPending) return;
+  state.centerPending = true;
+  const buttons = [...document.querySelectorAll('#center-btn, [data-pose-preset="center"]')];
+  const disabled = buttons.map(button => button.disabled);
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const result = await withFeedback("读取两轴反馈并回中...", "回中目标已提交；自动跟随已暂停，实际位置请查看反馈", () =>
+      api("/api/head/center", {method:"POST",body:JSON.stringify({time_ms:1500})})
+    );
+    $("yaw-value").textContent = result.target.yaw;
+    $("pitch-value").textContent = result.target.pitch;
+    $("yaw-input").value = result.target.yaw;
+    $("pitch-input").value = result.target.pitch;
+    return result;
+  } finally {
+    state.centerPending = false;
+    buttons.forEach((button, i) => { button.disabled = disabled[i]; });
+  }
 }
 
 async function sendPose() {
@@ -930,26 +952,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const result = await withFeedback("停止中...", "Demo 已停止", () => api("/api/demo/stop", { method: "POST" }));
     $("running-label").textContent = String(result.running);
   };
-  $("center-btn").onclick = async () => {
-    const snapshot = await withFeedback("回中中...", "回中已发送", () =>
-      api("/api/head/move", {
-        method: "POST",
-        body: JSON.stringify({
-          yaw: state.axisLimits.yaw_center,
-          pitch: state.axisLimits.pitch_center,
-          time_ms: 1500,
-        }),
-      })
-        .then((result) => {
-          if (result.error) throw new Error(result.error);
-          return result;
-        })
-    );
-    $("yaw-value").textContent = snapshot.target.yaw;
-    $("pitch-value").textContent = snapshot.target.pitch;
-    $("yaw-input").value = snapshot.target.yaw;
-    $("pitch-input").value = snapshot.target.pitch;
-  };
+  $("center-btn").onclick = sendCenter;
   $("send-pose-btn").onclick = sendPose;
   $("visual-calibration-btn").onclick = recordVisualCalibrationSample;
   $("scan-btn").onclick = async () => {
@@ -1085,6 +1088,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
   for (const button of document.querySelectorAll("[data-yaw]")) {
     button.addEventListener("click", () => {
+      if (button.dataset.posePreset === "center") return sendCenter();
       $("yaw-input").value = button.dataset.yaw;
       $("pitch-input").value = button.dataset.pitch;
       sendPose();

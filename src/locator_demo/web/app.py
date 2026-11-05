@@ -97,6 +97,10 @@ class MoveRequest(BaseModel):
     time_ms: int = 1000
 
 
+class CenterRequest(BaseModel):
+    time_ms: int = Field(1500, ge=300, le=10000)
+
+
 class VisualCalibrationRequest(BaseModel):
     yaw: int | None = None
     pitch: int | None = None
@@ -478,6 +482,26 @@ class DemoRuntime:
         if fault:
             self.log('motion_feedback_error', {'error': reason, 'feedback': self._feedback})
         return generation
+
+    def _cancel_automatic_trajectory(self, generation, reason):
+        """A perception tick may revoke only this active automatic intent.
+
+        Manual routes stop automatic tracking before enqueueing their goal.
+        Perception continues while paused, but must not cancel that goal when
+        its acoustic context, source ID or preview face changes. Called under
+        _tick_lock, which also serializes subsequent manual submissions.
+        """
+        if not self.running or generation != self.motion_generation():
+            return False
+        head = self.head
+        if not getattr(head, 'is_moving', False) or not hasattr(head, 'cancel'):
+            return False
+        previous = self.pose
+        head.cancel()
+        self.pose = getattr(head, 'estimated_pose', self.pose)
+        self.log('auto_trajectory_cancelled', {'reason': reason, 'generation': generation,
+            'previous_goal': asdict(previous), 'holding_pose': asdict(self.pose)})
+        return True
 
     def _feedback_loop(self):
         while not self._control_stop.wait(1.0):
@@ -1625,7 +1649,7 @@ class DemoRuntime:
         ticks = list(self._control_times)
         tick_hz = (len(ticks) - 1) / (ticks[-1] - ticks[0]) if len(ticks) > 1 and ticks[-1] > ticks[0] else 0
         return {
-            "algorithm_revision": "R52",
+            "algorithm_revision": "R53",
             "servo_connection": {'port':self.config.port,'yaw_id':self.config.yaw_id,
                 'pitch_id':self.config.pitch_id,'discovery':dict(self._servo_discovery)},
             "stereo_preflight": dict(self._stereo_preflight),
@@ -2028,6 +2052,12 @@ class DemoRuntime:
         self.log("motion_pose_synced", {**values, "only_axis": only_axis})
 
     @_motion_serialized
+    def center(self, *, time_ms=1500, generation=None):
+        """Use server-side saved centres and fresh feedback for both axes."""
+        self.sync_motion_pose(generation=generation)
+        return self.move(self.logic.center_pose, time_ms, source='manual_center', generation=generation)
+
+    @_motion_serialized
     def move(self, pose: HeadPose, time_ms: int, *, source: str = "manual_move", generation=None) -> HeadPose:
         if self._motion_fault and source == 'auto_move':
             raise RuntimeError(self._motion_fault)
@@ -2043,7 +2073,7 @@ class DemoRuntime:
             changed_axes.append("yaw")
         if previous_pose.pitch != safe_pose.pitch:
             changed_axes.append("pitch")
-        event_name = "auto_move" if source == "auto_move" else "manual_move"
+        event_name = source if source in ('auto_move', 'manual_center') else 'manual_move'
         self.log(
             event_name,
             {
@@ -2137,9 +2167,8 @@ class DemoRuntime:
             self.audio_mapping.swap_channels, self.control.control_profile,
             self.tracking_strategy, self.vision_processing.active_speaker_enabled)
         if core_context != self._dominant_context:
-            if self._core_motion_authorized and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
-                self.head.cancel()
-                self.pose = getattr(self.head, 'estimated_pose', self.pose)
+            if self._core_motion_authorized:
+                self._cancel_automatic_trajectory(generation, 'acoustic_context_changed')
             self._dominant_sound.reset()
             self._acoustic_epoch += 1
             self._core_motion_authorized = False
@@ -2176,9 +2205,7 @@ class DemoRuntime:
         # Revoke a queued correction for an old source before the camera worker
         # publishes a new result. Never wait for its next frame to change owner.
         if audio_primary and acoustic_token != self._audio_primary_token:
-            if self._audio_primary_token is not None and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
-                self.head.cancel()
-                self.pose = getattr(self.head, 'estimated_pose', self.pose)
+            if self._audio_primary_token is not None and self._cancel_automatic_trajectory(generation, 'core_sound_changed'):
                 self.motor_guard_until_s = 0.
             self._audio_primary_token = acoustic_token
             self._smoothed_error = None
@@ -2289,10 +2316,8 @@ class DemoRuntime:
             # Visual loss or a new confirmed source withdraws the old visual
             # trajectory. A fresh acoustic goal is then free to take over.
             owner = 'visual' if control_target is not None else 'audio'
-            if self._audio_primary_owner == 'visual' and owner != 'visual':
-                if getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
-                    self.head.cancel()
-                    self.pose = getattr(self.head, 'estimated_pose', self.pose)
+            if self.running and self._audio_primary_owner == 'visual' and owner != 'visual':
+                self._cancel_automatic_trajectory(generation, 'audio_assist_face_lost')
                 self.motor_guard_until_s = 0.
             self._audio_primary_owner = owner
         audio_for_control = self.last_audio if audio_enabled else None
@@ -2316,9 +2341,8 @@ class DemoRuntime:
                 self._core_motion_authorized = False
                 self._core_motion_reason = 'stopped'
             elif visual_owner:
-                if self._core_motion_authorized and getattr(self.head, 'is_moving', False) and hasattr(self.head, 'cancel'):
-                    self.head.cancel()
-                    self.pose = getattr(self.head, 'estimated_pose', self.pose)
+                if self._core_motion_authorized:
+                    self._cancel_automatic_trajectory(generation, 'visual_takeover')
                 self._core_motion_authorized = False
                 self._core_motion_reason = 'audio_primary_visual_refinement' if audio_primary else 'visual_target_has_priority'
             elif self._dominant_sound.fresh_core_observation:
@@ -2349,9 +2373,8 @@ class DemoRuntime:
         audio_seek_abs_azimuth = abs(effective_audio_azimuth)
         audio_seek_direction = self.last_audio.direction.value
         move_time_ms = int(self._profile_params()["move_time_ms"])
-        if self.running and view_confirming and not acoustic_fallback and getattr(self.head, "is_moving", False) and hasattr(self.head, "cancel"):
-            self.head.cancel()
-            self.pose = getattr(self.head, "estimated_pose", self.pose)
+        if self.running and view_confirming and not acoustic_fallback:
+            self._cancel_automatic_trajectory(generation, 'awaiting_fresh_visual_frame')
         if self.running and (not view_confirming or acoustic_fallback):
             visual_tracking = not view_confirming and visual_enabled and target_for_control is not None and self.last_state.target_confirmed
             detection_sequence = getattr(frame, "detection_sequence", 0) if self.features.camera_enabled else 0
@@ -2875,6 +2898,16 @@ def create_app(*, simulated: bool = False, settings_path: Path | None = None) ->
         except Exception as exc:
             runtime.log("servo_direct_move_error", {"error": str(exc), "servo_id": payload.servo_id})
             return {"servo_id": payload.servo_id, "position": payload.position, "time_ms": payload.time_ms, "error": str(exc)}
+
+    @app.post("/api/head/center")
+    async def center_head(payload: CenterRequest = CenterRequest()):
+        try:
+            generation = runtime.halt_motion()
+            target = await asyncio.to_thread(runtime.center, time_ms=payload.time_ms, generation=generation)
+            return {'target': asdict(target), 'running': runtime.running, 'status': 'submitted', 'error': None}
+        except Exception as exc:
+            runtime.log('manual_center_error', {'error': str(exc), 'port': runtime.config.port})
+            return {'target': asdict(runtime.pose), 'running': runtime.running, 'status': 'failed', 'error': str(exc)}
 
     @app.post("/api/head/move")
     async def move(payload: MoveRequest):
